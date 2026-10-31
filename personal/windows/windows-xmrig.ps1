@@ -89,12 +89,19 @@ function Assert-DefenderReady([switch]$AllowMissingInstalled, [switch]$PrepareUp
         if ($consent.component -ne $Engine -or $consent.accepted -ne $true -or -not $consent.keys) {
             throw 'Aceptacion PUA local invalida.'
         }
-        if ($PrepareUpgrade) { Assert-PuaUpgrade $consent.sha256 }
-        else { Assert-PuaBuild $consent.sha256 -AllowMissingInstalled:$AllowMissingInstalled }
         $puaThreats = @(Get-MpThreat -ErrorAction Stop)
-        $detections = @($detections | Where-Object {
-            -not ((Get-DetectionKey $_) -in $consent.keys -and (Test-KnownPua $_ $puaThreats))
+        $acceptedDetections = @($detections | Where-Object {
+            (Get-DetectionKey $_) -in $consent.keys -and (Test-KnownPua $_ $puaThreats)
         })
+        # A receipt for an absent incident grants no exception and must not
+        # prevent a new, clean build from being scanned. Preserve it unchanged.
+        if ($acceptedDetections.Count) {
+            if ($PrepareUpgrade) { Assert-PuaUpgrade $consent.sha256 }
+            else { Assert-PuaBuild $consent.sha256 -AllowMissingInstalled:$AllowMissingInstalled }
+            $detections = @($detections | Where-Object {
+                -not ((Get-DetectionKey $_) -in $consent.keys -and (Test-KnownPua $_ $puaThreats))
+            })
+        }
     }
     $reviewFile = Join-Path $Runtime 'xmrig-security-reviewed.json'
     if (Test-Path -LiteralPath $reviewFile) {
@@ -165,7 +172,7 @@ function Assert-PuaUpgrade([string]$PreviouslyAccepted) {
             throw 'El ejecutable instalado cambio fuera de la compilacion registrada.'
         }
     }
-    Write-Host 'Preparando nueva compilacion. La aceptacion PUA anterior no autoriza su analisis ni ejecucion.'
+    Write-Host 'Preparando nueva compilacion para analizar. La aceptacion PUA anterior no autoriza su ejecucion.'
 }
 function Accept-Pua {
     Assert-StandardUser
@@ -412,17 +419,24 @@ function Invoke-DefenderScan([string]$Directory) {
 }
 function Scan-Executable {
     Assert-MinerAllowed
-    Assert-DefenderReady
+    # Scanning a trusted replacement is preparation, never authorization to run.
+    # Keep the strict current-hash gate AFTER the scan, before writing its receipt.
+    Assert-DefenderReady -PrepareUpgrade
     Check-Executable
     Remove-Item -LiteralPath $ScanFile -ErrorAction SilentlyContinue
     $scan = Invoke-DefenderScan $InstallRoot
     # Exit 0 also includes successful remediation: check detection history and hash again.
-    Assert-DefenderReady
+    try { Assert-DefenderReady }
+    catch { throw "Se ejecuto el analisis. La validacion posterior no autoriza XMRig: $($_.Exception.Message)" }
     if ($scan.ExitCode -ne 0) { throw "Defender no completo el analisis (codigo $($scan.ExitCode)); no se ejecutara XMRig." }
     Check-Executable
     $record = @{completed=$true; sha256=$ExeHash; path=$Exe; updated=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()}
     [IO.File]::WriteAllText($ScanFile, ($record | ConvertTo-Json), $Utf8)
+    $currentConsent = $null
     if (Test-Path -LiteralPath (Join-Path $Runtime 'xmrig-pua-consent.json')) {
+        $currentConsent = Get-Content -LiteralPath (Join-Path $Runtime 'xmrig-pua-consent.json') -Raw | ConvertFrom-Json
+    }
+    if ($currentConsent -and $currentConsent.sha256 -ceq $ExeHash) {
         Write-Host 'Analisis completado sin nuevas detecciones pendientes. La PUA Caypnamer sigue aceptada por tu decision; no es un dictamen de inocuidad.'
     } else {
         Write-Host 'Analisis completado sin detecciones registradas para esta carpeta. No constituye una garantia de inocuidad.'

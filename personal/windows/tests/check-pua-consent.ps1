@@ -10,6 +10,11 @@ function Assert-StandardUser { }
 function Owned-Process($State) { return $null }
 function Get-MpComputerStatus { param($ErrorAction) return @{AntivirusEnabled=$script:av;RealTimeProtectionEnabled=$script:av} }
 function Get-MpThreat { param($ErrorAction) return $script:threats }
+function Invoke-DefenderScan([string]$Directory) {
+    Assert-True ($Directory -eq $InstallRoot)
+    $script:scans++
+    return @{ExitCode=$script:scanCode}
+}
 function Get-MpThreatDetection {
     param($ErrorAction)
     $script:queries++
@@ -39,6 +44,7 @@ try {
         $block=Join-Path $Runtime 'xmrig-security-block.json'; $consent=Join-Path $Runtime 'xmrig-pua-consent.json'
         '{"component":"XMRig","threat_ids":[274600]}' | Set-Content $block
         $script:av=$true; $script:queries=0; $script:changeDuring=$false
+        $script:scans=0; $script:scanCode=0
         $script:detections=@(@{DetectionID='current-pua';ThreatID=274600;Resources=@("file:_$Exe");ThreatStatusID=5})
         $script:threats=@(@{ThreatID=274600;ThreatName='PUA:Win32/Caypnamer.A!ml'})
         switch ($scenario) {
@@ -88,6 +94,24 @@ try {
                 Copy-Item $manifest (Join-Path $InstallRoot 'build.json')
                 Copy-Item (Join-Path $BuildRoot 'xmrig.exe') $Exe
                 Assert-Fails { Assert-DefenderReady }
+                # Regression: the old consent must not block the scanner itself.
+                Assert-Fails { Scan-Executable }
+                Assert-True ($script:scans -eq 1)
+                Assert-True ((Get-Content -LiteralPath $consent -Raw) -ceq $oldReceipt)
+                Assert-Fails { Check-Scan } # Old hash never grants scan/run permission.
+                # If Defender no longer reports that incident, no exception is
+                # needed; a successful fresh scan can authorize this exact build.
+                $savedDetections=$script:detections; $savedThreats=$script:threats
+                $script:detections=@(); $script:threats=@()
+                $script:scanCode=2
+                Assert-Fails { Scan-Executable }
+                Assert-Fails { Check-Scan }
+                $script:scanCode=0
+                Scan-Executable
+                Check-Scan
+                Assert-True ((Get-Content -LiteralPath $consent -Raw) -ceq $oldReceipt)
+                $script:detections=$savedDetections; $script:threats=$savedThreats
+                Assert-Fails { Assert-DefenderReady } # Reappearing incident still blocks.
                 Accept-Pua # Separate explicit acceptance, never part of Install.
                 Assert-DefenderReady
                 Assert-Fails { Check-Scan }
