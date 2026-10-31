@@ -80,7 +80,7 @@ function Get-MinerDetections {
         $matched
     })
 }
-function Assert-DefenderReady([switch]$AllowMissingInstalled) {
+function Assert-DefenderReady([switch]$AllowMissingInstalled, [switch]$PrepareUpgrade) {
     Assert-DefenderEnabled
     $detections = @(Get-MinerDetections)
     $consentFile = Join-Path $Runtime 'xmrig-pua-consent.json'
@@ -89,7 +89,8 @@ function Assert-DefenderReady([switch]$AllowMissingInstalled) {
         if ($consent.component -ne $Engine -or $consent.accepted -ne $true -or -not $consent.keys) {
             throw 'Aceptacion PUA local invalida.'
         }
-        Assert-PuaBuild $consent.sha256 -AllowMissingInstalled:$AllowMissingInstalled
+        if ($PrepareUpgrade) { Assert-PuaUpgrade $consent.sha256 }
+        else { Assert-PuaBuild $consent.sha256 -AllowMissingInstalled:$AllowMissingInstalled }
         $puaThreats = @(Get-MpThreat -ErrorAction Stop)
         $detections = @($detections | Where-Object {
             -not ((Get-DetectionKey $_) -in $consent.keys -and (Test-KnownPua $_ $puaThreats))
@@ -140,9 +141,31 @@ function Assert-PuaBuild([string]$Expected, [switch]$AllowMissingInstalled) {
         $build = Load-Build $directory
         if ($build.sha256 -cne $Expected -or
             (Get-FileHash -LiteralPath (Join-Path $directory 'xmrig.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Expected) {
-            throw 'La aceptacion PUA no corresponde a esta compilacion/archivo. No se inicia el minero.'
+            throw "La aceptacion PUA no corresponde a esta compilacion/archivo (SHA actual: $($build.sha256)). Hace falta revisar y aceptar explicitamente el nuevo SHA si la alerta persiste. No se inicia el minero."
         }
     }
+}
+function Assert-PuaUpgrade([string]$PreviouslyAccepted) {
+    # Preparation only: keep the old receipt unchanged, copy a trusted new build,
+    # then require the ordinary scan/consent gates before any execution.
+    $build = Load-Build $BuildRoot
+    $source = Join-Path $BuildRoot 'xmrig.exe'
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant() -cne $build.sha256) {
+        throw 'La nueva compilacion no coincide con su registro de confianza.'
+    }
+    if ($build.sha256 -ceq $PreviouslyAccepted) {
+        Assert-PuaBuild $PreviouslyAccepted -AllowMissingInstalled
+        return
+    }
+    if ($PreviouslyAccepted -cnotmatch '^[a-f0-9]{64}$') { throw 'Aceptacion anterior sin SHA valido.' }
+    if (Test-Path -LiteralPath $InstallRoot) { Assert-InstallDirectory }
+    if (Test-Path -LiteralPath $Exe) {
+        $installed = (Get-FileHash -LiteralPath $Exe -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($installed -cne $PreviouslyAccepted -and $installed -cne $build.sha256) {
+            throw 'El ejecutable instalado cambio fuera de la compilacion registrada.'
+        }
+    }
+    Write-Host 'Preparando nueva compilacion. La aceptacion PUA anterior no autoriza su analisis ni ejecucion.'
 }
 function Accept-Pua {
     Assert-StandardUser
@@ -584,8 +607,8 @@ try {
         'Install' {
             Assert-StandardUser
             Assert-MinerAllowed
-            Assert-DefenderReady -AllowMissingInstalled
             if (Owned-Process (Read-State)) { throw 'Deten primero la mineria con mine-stop.' }
+            Assert-DefenderReady -AllowMissingInstalled -PrepareUpgrade
             $built = $BuildRoot
             [void](Load-Build $built)
             $sourceExe = Join-Path $built 'xmrig.exe'

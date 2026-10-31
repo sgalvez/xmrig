@@ -73,6 +73,25 @@ try {
                 Copy-Item (Join-Path $BuildRoot 'xmrig.exe') $Exe
             }
             Assert-DefenderReady
+            if ($scenario -eq 'success') {
+                $oldReceipt = Get-Content -LiteralPath $consent -Raw
+                $oldHash = $ExpectedSha256
+                # A newly built source must not inherit consent for the old hash.
+                Add-Content (Join-Path $BuildRoot 'xmrig.exe') 'new build fixture'
+                $ExpectedSha256 = (Get-FileHash (Join-Path $BuildRoot 'xmrig.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+                (Get-Content $manifest -Raw).Replace($oldHash, $ExpectedSha256) | Set-Content $manifest
+                @{sha256=$ExpectedSha256;commit=$SourceCommit;security_policy=$SecurityPolicy;recipe_sha256=('a'*64);manifest_sha256=(Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant()} | ConvertTo-Json | Set-Content $TrustFile
+                Assert-Fails { Assert-DefenderReady }
+                Assert-DefenderReady -AllowMissingInstalled -PrepareUpgrade
+                Assert-True ((Get-Content -LiteralPath $consent -Raw) -ceq $oldReceipt)
+                Assert-Fails { Check-Scan }
+                Copy-Item $manifest (Join-Path $InstallRoot 'build.json')
+                Copy-Item (Join-Path $BuildRoot 'xmrig.exe') $Exe
+                Assert-Fails { Assert-DefenderReady }
+                Accept-Pua # Separate explicit acceptance, never part of Install.
+                Assert-DefenderReady
+                Assert-Fails { Check-Scan }
+            }
             $script:detections[0].DetectionID='new-pua-same-threat'
             Assert-Fails { Assert-DefenderReady }
             Assert-True (Test-Path $block)
