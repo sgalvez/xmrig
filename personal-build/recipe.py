@@ -2,7 +2,7 @@
 import hashlib
 from pathlib import Path
 
-POLICY = 'rvn-governor-2'
+POLICY = 'rvn-governor-3'
 RECIPE_FILES = (
     '.dockerignore', 'Dockerfile', 'sources.json', 'fetch.py', 'build.sh',
     'mingw.cmake', 'windows-libs.cmake', 'provenance.py', 'recipe.py',
