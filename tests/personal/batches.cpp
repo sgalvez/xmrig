@@ -30,6 +30,8 @@ int main()
             assert(inside.fetch_add(1)==0);
             std::this_thread::sleep_for(std::chrono::milliseconds(3));
             assert(inside.fetch_sub(1)==1);
+            budget.progress(150,100);
+            assert(shared->dagDone==100 && shared->dagTotal==100);
             budget.complete();
         }
     };

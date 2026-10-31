@@ -71,6 +71,12 @@ public:
         m_next = ended + (busy * (100 - m_duty) + m_duty - 1) / m_duty;
     }
     bool ready(uint64_t now) const { return m_state == State::Running && now >= m_next; }
+    // Do not round a short duty-budget wait up to a fixed 50 ms per DAG batch.
+    uint64_t waitMs(uint64_t now) const
+    {
+        if (m_state != State::Running) { return 50; }
+        return m_next > now ? std::min<uint64_t>(50, m_next - now) : 1;
+    }
     unsigned duty() const { return m_duty; }
     unsigned effectiveDuty() const { return m_state == State::Running ? m_duty : 0; }
     unsigned maximum() const { return m_maximum; }

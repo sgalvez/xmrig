@@ -174,6 +174,7 @@ void OclKawPowRunner::set(const Job &job, uint8_t *blob)
             if (m_governor && OclLib::finish(m_queue) != CL_SUCCESS) {
                 throw std::runtime_error("DAG queue completion failed");
             }
+            budget.progress(std::min(start + N, dag_words), dag_words);
             budget.complete();
         }
 

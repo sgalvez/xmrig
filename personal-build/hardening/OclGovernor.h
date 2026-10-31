@@ -25,6 +25,8 @@ struct OclGovernor {
     GpuGovernor policy;
     ThermalSample last;
     uint64_t logged = 0;
+    uint32_t dagDone = 0, dagTotal = 0;
+    std::string loggedPhase;
 
     static std::shared_ptr<OclGovernor> acquire(const OclLaunchData &data)
     {
@@ -72,15 +74,17 @@ struct OclGovernor {
                 now = Chrono::steadyMSecs();
                 policy.sample(last, now);
             }
-            if (!logged || now - logged >= 1000 || policy.state() == GpuGovernor::State::Fault) {
-                LOG_INFO("gpu-governor {\"v\":1,\"gpu\":%u,\"pci\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"phase\":\"%s\",\"duty_percent\":%u,\"edge_c\":%s,\"hotspot_c\":%s,\"memory_c\":%s}",
+            if (!logged || loggedPhase != phase || now - logged >= 1000 || policy.state() == GpuGovernor::State::Fault) {
+                LOG_INFO("gpu-governor {\"v\":1,\"gpu\":%u,\"pci\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"phase\":\"%s\",\"duty_percent\":%u,\"edge_c\":%s,\"hotspot_c\":%s,\"memory_c\":%s,\"dag_done\":%u,\"dag_total\":%u}",
                          data.device.index(), data.device.topology().toString().data(), policy.name(), policy.reason(), phase, policy.effectiveDuty(),
-                         AdlHealth::number(last.edge).c_str(), AdlHealth::number(last.hotspot).c_str(), AdlHealth::number(last.memory).c_str());
+                         AdlHealth::number(last.edge).c_str(), AdlHealth::number(last.hotspot).c_str(), AdlHealth::number(last.memory).c_str(), dagDone, dagTotal);
                 logged = now;
+                loggedPhase = phase;
             }
             if (policy.state() == GpuGovernor::State::Fault) { throw std::runtime_error(policy.reason()); }
-            if (policy.ready(now) && !Nonce::isPaused()) { return; }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            const bool paused = Nonce::isPaused();
+            if (policy.ready(now) && !paused) { return; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(paused ? 50 : policy.waitMs(now)));
         }
     }
 };
@@ -103,6 +107,10 @@ public:
     ~GpuBatch()
     {
         if (m_governor && !m_completed) { m_governor->policy.fault("gpu-batch-failed"); }
+    }
+    void progress(uint32_t done, uint32_t total)
+    {
+        if (m_governor) { m_governor->dagDone = std::min(done, total); m_governor->dagTotal = total; }
     }
     void complete()
     {

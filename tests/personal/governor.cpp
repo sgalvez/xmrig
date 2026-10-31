@@ -46,6 +46,20 @@ int main()
         h.sample(sample(60,60,60,50),50);
         assert(h.ready(50));
     }
+    GpuGovernor shortBatch(25);
+    shortBatch.sample(sample(35,37,60,100),100);
+    shortBatch.completed(100,101);
+    assert(shortBatch.waitMs(101)==3 && !shortBatch.ready(103) && shortBatch.ready(104));
+    // A small DAG batch should not pay a minimum 50 ms delay thousands of times.
+    uint64_t simulated=1000;
+    for (int i=0;i<6000;++i) {
+        shortBatch.completed(simulated,simulated+1);
+        simulated+=1;
+        while(!shortBatch.ready(simulated)) simulated+=shortBatch.waitMs(simulated);
+    }
+    assert(simulated==25000); // 6000 * (1 ms work + 3 ms wait), not 306 seconds.
+    shortBatch.sample(sample(35,37,80,simulated),simulated);
+    assert(shortBatch.waitMs(simulated)==50 && !shortBatch.ready(simulated));
     GpuGovernor warm(25);
     warm.sample(sample(79,79,79,1),1);
     assert(warm.ready(1)); // No earlier 70/75 C pause remains.
