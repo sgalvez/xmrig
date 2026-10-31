@@ -1,0 +1,15 @@
+name: Personal terminal and validation tests
+on:
+  push:
+    branches: ['personal/rvn-gpu-governor']
+    paths: ['personal/lab/**', '.github/workflows/personal-panel.yml']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  panel-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python3 -m unittest discover -s personal/lab/tests
