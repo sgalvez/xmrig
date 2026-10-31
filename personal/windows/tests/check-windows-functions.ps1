@@ -44,7 +44,7 @@ $Exe = Join-Path $InstallRoot 'xmrig.exe'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $Utf8 = New-Object Text.UTF8Encoding($false)
 $Engine = 'XMRig'
-$SourceCommit = '778ef0f43cd5d2e989f117298d2ab1c159b671e8'
+$SourceCommit = 'b3dc71ad9234ca870486ea1bab83dbdd902827e3'
 $GpuId = 2
 # Do not change SystemRoot: Windows cryptographic providers need the real DLLs.
 function Get-GpuLibraryPath([string]$Name) { return Join-Path (Join-Path $temp 'System32') $Name }
