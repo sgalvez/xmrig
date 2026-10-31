@@ -46,7 +46,7 @@ class Canvas:
 class TerminalTests(unittest.TestCase):
     def test_render_at_small_and_large_sizes_and_all_pages(self):
         for h,w in ((15,60),(24,80),(30,100),(40,140),(50,200)):
-            for page in ('overview','logs','transactions'):
+            for page in ('overview','logs','transactions','guide'):
                 with self.subTest(size=(h,w),page=page):
                     canvas=Canvas(h,w)
                     render(canvas,fixture(),History(),1000,page,colors=False)
@@ -56,8 +56,22 @@ class TerminalTests(unittest.TestCase):
         canvas=Canvas(40,140)
         render(canvas,fixture(),History(),1000,colors=False)
         text=canvas.text()
-        for expected in ('35.000000 MH/s','34.000000 MH/s','0.000000000001 RVN','0.00000001 RVN','65 C','220 W','25 %','running / search'):
+        for expected in ('35.000000 MH/s','34.000000 MH/s','0.000000000001 RVN','0.00000001 RVN','65 C','220 W','25 %','En marcha / Búsqueda'):
             self.assertIn(expected,text)
+
+    def test_explanations_are_visible_and_expire(self):
+        data=fixture()
+        data.update(state='waiting',title='Minería pausada')
+        data['miner'].update(trial=True,active_seconds=62,cooling_seconds=138)
+        data['telemetry'].update(governor_state='cooling',governor_phase='dag',duty_percent='0',
+                                 edge_c='57',hotspot_c='59',memory_c='78',fan_rpm='0')
+        canvas=Canvas(40,140)
+        render(canvas,data,History(),1000,colors=False)
+        for text in ('bajar 18 °C','62/300','0 RPM','ENFRIANDO'):
+            self.assertIn(text,canvas.text())
+        expired=current(data,1100)
+        self.assertNotIn('bajar 18',expired['insight']['thermal'])
+        self.assertNotIn('ENFRIANDO',expired['insight']['summary'])
 
     def test_elapsed_time_removes_live_metrics_without_new_snapshot(self):
         source=fixture()

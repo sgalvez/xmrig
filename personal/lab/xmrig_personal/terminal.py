@@ -1,5 +1,7 @@
 """Read-only terminal workstation. Receives the same public DTO as the web panel."""
 import copy
+import textwrap
+from .insights import explain
 import curses
 import re
 import sys
@@ -88,6 +90,8 @@ def current(snapshot, now):
     if old or checked is None or not 0 <= now - float(checked) <= 90:
         for key in ('hashrate', 'hashrate_hs', 'cleared', 'pending', 'minimum', 'last_share_age'):
             pool[key] = None
+        pool["fresh"] = False
+    data["insight"] = explain(data)
     return data
 
 
@@ -196,20 +200,21 @@ def money_rows(data, width):
 
 def gpu_rows(data, width):
     t, miner = data.get('telemetry', {}), data.get('miner', {})
+    insight = data.get('insight', {})
     return [(row('LOCAL / 10s', rate(t.get('hashrate_10s_hs')), width), CYAN),
             row('Media 60s', rate(t.get('hashrate_60s_hs')), width),
             row('Media 15min', rate(t.get('hashrate_15m_hs')), width),
             (row('GPU / hotspot', unit(t.get('edge_c'), 'C') + ' / ' + unit(t.get('hotspot_c'), 'C'), width), RED if (decimal(t.get('hotspot_c')) or 0) >= 75 else WHITE),
             row('Consumo / fan', unit(t.get('power_w'), 'W') + ' / ' + unit(t.get('fan_rpm'), 'RPM'), width),
-            row('Memoria / carga', unit(t.get('memory_c'), 'C') + ' / ' + unit(t.get('duty_percent'), '%'), width),
-            row('Control / fase', str(t.get('governor_state') or '--') + ' / ' + str(t.get('governor_phase') or '--'), width),
+            row('Memoria / actividad', unit(t.get('memory_c'), 'C') + ' / ' + unit(t.get('duty_percent'), '%'), width),
+            row('Control / fase', insight.get('control', '--') + ' / ' + ('DAG' if t.get('governor_phase') == 'dag' else 'Búsqueda' if t.get('governor_phase') == 'search' else '--'), width),
             row('GPU / PID', str(miner.get('gpu', '--')) + ' / ' + str(miner.get('pid', '--')), width)]
 
 
 def pool_rows(data, width):
     p, t = data.get('pool', {}), data.get('telemetry', {})
     return [(row('WORKER / 5min', p.get('hashrate'), width), CYAN),
-            row('Última share', duration(p.get('last_share_age')) + ' atrás', width),
+            row('Última share', duration(p.get('last_share_age')) + ' atrás' if p.get('last_share_age') is not None else 'Sin registro reciente', width),
             row('Liquidado', p.get('cleared'), width),
             row('Madurando', p.get('pending'), width),
             row('Umbral pago', p.get('minimum'), width),
@@ -237,8 +242,8 @@ def render(window, raw, history, now, page='overview', scroll=0, colors=True):
     s.put(0, 0, ' XMRIG / PERSONAL   RVN · KAWPOW · RX 9070 XT', AMBER, max(1,w-22), True)
     s.put(0, max(0,w-20), datetime.fromtimestamp(now).strftime('%d/%m %H:%M:%S'), DIM)
     color = GREEN if data.get('state') == 'working' else RED if data.get('state') == 'warning' else AMBER
-    s.put(1, 1, clean(data.get('title', 'SIN DATOS')).upper(), color, w-2, True)
-    s.put(2, 1, '[1] RESUMEN   [2/L] LOGS   [3] MOVIMIENTOS   [R] CONSULTAR   [Q] SALIR', DIM)
+    s.put(1, 1, clean(data.get('insight', {}).get('summary', data.get('title', 'SIN DATOS'))).upper(), color, w-2, True)
+    s.put(2, 1, '[1] RESUMEN   [2/L] LOGS   [3] MOVIMIENTOS   [4] GUÍA   [R] CONSULTAR   [Q] SALIR', DIM)
     footer = 'Solo lectura · Q cierra la consola, la GPU sigue · Pool cada 60s · Datos cada 5s'
     s.put(h-1, 1, footer, AMBER, w-2)
     if w < 80 or h < 24:
@@ -254,6 +259,14 @@ def render(window, raw, history, now, page='overview', scroll=0, colors=True):
         end = max(0,len(logs)-scroll)
         lines = logs[max(0,end-size):end] or ['Todavía no hay registros.']
         s.panel(4,0,h-5,w,'REGISTRO XMRIG · PgUp/PgDn · puede incluir mensajes anteriores', lines)
+    elif page == 'guide':
+        insight = data.get('insight', {})
+        lines = []
+        for label, key in (('AHORA', 'summary'), ('REFRIGERACIÓN', 'thermal'), ('VENTILADORES', 'fan'),
+                           ('TRABAJO', 'work'), ('PRUEBA', 'trial'), ('SIGUIENTE PASO', 'next_step'), ('COBROS', 'payment')):
+            lines += [(label, CYAN)] + textwrap.wrap(insight.get(key, ''), w-4) + ['']
+        lines += textwrap.wrap('DAG: memoria de trabajo que prepara la GPU antes de buscar soluciones. MH/s: millones de intentos por segundo. Share: resultado que valida el pool; no es un pago. Actividad: porcentaje de tiempo permitido por nuestro control, no utilización medida por AMD.', w-4)
+        s.panel(4,0,h-5,w,'ESTADO EXPLICADO / PgUp-PgDn',lines[scroll:])
     elif page == 'transactions':
         txs = data.get('transactions', [])
         lines = [('MOVIMIENTOS DE LA BILLETERA / últimas entradas disponibles', AMBER)]
@@ -265,7 +278,13 @@ def render(window, raw, history, now, page='overview', scroll=0, colors=True):
         lines += [('Las shares y el saldo del pool todavía no son fondos recibidos.',AMBER)]
         s.panel(4,0,h-5,w,'BILLETERA RVN', lines)
     else:
-        top = 4
+        insight = data.get('insight', {})
+        explanation = []
+        for key, color in (('thermal', AMBER), ('fan', AMBER), ('work', WHITE), ('trial', CYAN), ('next_step', GREEN)):
+            explanation.extend((line, color) for line in textwrap.wrap(insight.get(key, ''), max(20,w-4)))
+        explanation_height = min(len(explanation)+2, 9 if h >= 34 else 8)
+        s.panel(4,0,explanation_height,w,'QUÉ ESTÁ PASANDO / SIGUIENTE PASO',explanation)
+        top = 4 + explanation_height
         if w >= 132 and h >= 34:
             sizes = [w//3, w//3, w-2*(w//3)]
             x = 0
@@ -279,7 +298,7 @@ def render(window, raw, history, now, page='overview', scroll=0, colors=True):
             session = [('Motor: '+str(miner.get('engine','--')),CYAN),
                        'Worker: '+str(miner.get('worker') or data.get('worker','--')),
                        'Cobro: '+str(data.get('address','--')),
-                       'Modo: '+('PRUEBA DE CINCO MINUTOS' if miner.get('trial') else 'SESIÓN NORMAL'),
+                       'Modo: '+('PRUEBA: 300 s sin pausa térmica' if miner.get('trial') else 'SESIÓN NORMAL'),
                        'Proceso: '+str(miner.get('process','Sin verificar')),
                        ('Pausa >=80 C / reanuda todos <=60 C',DIM)]
             s.panel(top,left,8,w-left,'05 SESIÓN',session)
@@ -289,16 +308,17 @@ def render(window, raw, history, now, page='overview', scroll=0, colors=True):
             s.panel(top,0,9,left,'GPU / LOCAL',gpu_rows(data,left-4))
             s.panel(top,left,9,w-left,'RAVENMINER / PPLNS',pool_rows(data,w-left-4))
             top += 9
-            s.panel(top,0,8,left,'BILLETERA / RVN',money_rows(data,left-4))
-            s.panel(top,left,8,w-left,'NODO',node_rows(data,w-left-4))
-            top += 8
+            if h-top >= 9:
+                s.panel(top,0,8,left,'BILLETERA / RVN',money_rows(data,left-4))
+                s.panel(top,left,8,w-left,'NODO',node_rows(data,w-left-4))
+                top += 8
         if h-top >= 12:
             left=w//2
             for x,size,title,points in ((0,left,'HISTORIA GPU / media 10s',history.gpu),(left,w-left,'HISTORIA POOL / media 5min',history.pool)):
                 graph, bounds = spark(points,size-4)
                 s.panel(top,x,5,size,title,[(graph,CYAN),(bounds,DIM),('Muestras recibidas durante esta consola',DIM)])
             top += 5
-        messages = []
+        messages = [(data.get('insight', {}).get('payment', ''), CYAN)]
         for alert in data.get('alerts', [])[:2]:
             messages.append((alert, AMBER))
         messages += [(line, DIM) for line in data.get('logs', [])[-max(1,h-top-5):]]
@@ -341,6 +361,7 @@ def run(reader):
             if key==ord('1'): page,scroll='overview',0
             if key in (ord('2'),ord('l'),ord('L')): page,scroll='logs',0
             if key==ord('3'): page,scroll='transactions',0
+            if key==ord('4'): page,scroll='guide',0
             if key==curses.KEY_PPAGE: scroll=min(60,scroll+10)
             if key==curses.KEY_NPAGE: scroll=max(0,scroll-10)
     try:

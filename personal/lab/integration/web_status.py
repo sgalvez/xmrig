@@ -1,5 +1,6 @@
 """Panel HTTP local de solo lectura. No expone RPC, claves ni archivos privados."""
 import json
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -7,6 +8,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from dashboard import clean, coins, collect, number, rate
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "xmrig-personal-lab"))
+from xmrig_personal.insights import explain
 
 ASSETS = Path(__file__).resolve().parent / "web"
 
@@ -27,7 +30,11 @@ def view(data):
     pool_fresh = pool_age is not None and 0 <= pool_age <= 90 and not pool.get("error")
     workers = obj(p.get("workers")).get("list", [])
     workers = workers if isinstance(workers, list) else []
-    matching = [w for w in workers if isinstance(w, dict) and w.get("name") == config.get("worker")]
+    probe_current = (miner.get('engine') == 'XMRig' and miner.get('running') is True
+                     and miner.get('trial') is True and miner.get('address') == config.get('address')
+                     and number(miner.get('updated')) is not None and 0 <= now-float(number(miner['updated'])) < 25)
+    observed_worker = miner.get('worker') if probe_current else config.get('worker')
+    matching = [w for w in workers if isinstance(w, dict) and w.get("name") == observed_worker]
     worker = max(matching, key=lambda w: number(w.get("lastShareTime")) or 0, default={})
     share = number(worker.get("lastShareTime"))
     share_age = now - float(share) if share and share > 0 else None
@@ -51,6 +58,8 @@ def view(data):
         state, title, detail = "idle", "Sin señales del minero", "No hay registros de inicio. Ejecuta mine-start después de identificar tu GPU."
     elif not engine_matches:
         state, title, detail = "warning", "Registro de otro motor", "El registro no corresponde a XMRig. Comprueba miner-status e inicia el motor nuevo."
+    elif not heartbeat and miner.get('running') is False:
+        state, title, detail = "idle", "Último estado registrado: detenido", "El supervisor dejó constancia de la detención. No hay telemetría en vivo; usa miner-status para comprobar procesos actuales."
     elif not heartbeat:
         state, title, detail = "warning", "Estado del minero sin verificar", "El supervisor dejó de actualizar. Comprueba miner-status; un registro antiguo no confirma actividad."
     elif not miner.get("running"):
@@ -131,7 +140,7 @@ def view(data):
                                      "amount": coins(tx.get("amount")),
                                      "confirmations": str(tx.get("confirmations", "?")),
                                      "txid": clean(tx.get("txid", ""))})
-    return {
+    result = {
         "updated": now,
         "state": state, "title": title, "detail": detail,
         "miner": {"engine": "XMRig 6.26.0",
@@ -139,9 +148,11 @@ def view(data):
                   "gpu": str(miner.get("gpu_id", "—")),
                   "pid": str(miner.get("miner_pid", "—")), "uptime": uptime,
                   "trial": miner.get("trial") is True, "worker": miner.get("worker"),
+                  "active_seconds": str(miner['active_seconds']) if active and number(miner.get('active_seconds')) is not None else None,
+                  "cooling_seconds": str(miner['cooling_seconds']) if active and number(miner.get('cooling_seconds')) is not None else None,
                   "age": max(0, int(miner_age)) if miner_age is not None else None},
         "telemetry": telemetry,
-        "pool": {"hashrate": rate(worker.get("hr5m") if pool_fresh else None),
+        "pool": {"fresh": pool_fresh, "worker": observed_worker, "hashrate": rate(worker.get("hr5m") if pool_fresh else None),
                  "hashrate_hs": str(worker["hr5m"]) if pool_fresh and number(worker.get("hr5m")) is not None else None,
                  "sample_time": float(checked or 0),
                  "last_share_age": max(0, int(share_age)) if pool_fresh and share_age is not None else None,
@@ -165,6 +176,9 @@ def view(data):
         "transactions": transactions,
         "logs": [clean(line)[:500] for line in data.get("logs", [])[-60:]],
     }
+
+    result["insight"] = explain(result)
+    return result
 
 
 class Snapshot:
