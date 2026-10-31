@@ -2,6 +2,9 @@
 #pragma once
 #include <cstdint>
 namespace personal {
-constexpr uint64_t donationMillis(double percent) { return static_cast<uint64_t>(percent * 60000.0); }
-constexpr uint64_t normalMillis(double percent) { return static_cast<uint64_t>((100.0 - percent) * 60000.0); }
+// This personal build never allocates work to developer donation, even when an
+// older JSON/CLI configuration requests a nonzero value.
+constexpr double donationPercent(double) { return 0.0; }
+constexpr uint64_t donationMillis(double) { return 0; }
+constexpr uint64_t normalMillis(double) { return 100 * 60000; }
 }

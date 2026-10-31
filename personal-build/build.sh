@@ -35,6 +35,7 @@ cmake -S "$sources_dir/xmrig" -B "$build_dir/xmrig" -DCMAKE_TOOLCHAIN_FILE="$rec
     -DWITH_HTTP=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build "$build_dir/xmrig" --parallel 2
 cp "$build_dir/xmrig/xmrig.exe" "$output_dir/xmrig.exe"
+python3 "$recipe_dir/verify_privacy.py" "$output_dir/xmrig.exe"
 cp "$sources_dir/xmrig/LICENSE" "$output_dir/LICENSE-xmrig.txt"
 cp "$sources_dir/libuv/LICENSE" "$output_dir/LICENSE-libuv.txt"
 cp "$sources_dir/openssl/LICENSE.txt" "$output_dir/LICENSE-openssl.txt"

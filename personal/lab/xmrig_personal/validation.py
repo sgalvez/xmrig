@@ -9,9 +9,9 @@ class ValidationError(ValueError):
     pass
 
 ENGINE = 'XMRig'
-COMMIT = 'd052b8b9b5d83d6adadf5f6a127e76ac3faa53aa'
-POLICY = 'rvn-governor-3'
-MINING_PROFILE = 'rx9070xt-duty25-halt80-resume60-search300-v3'
+COMMIT = '778ef0f43cd5d2e989f117298d2ab1c159b671e8'
+POLICY = 'rvn-governor-4'
+MINING_PROFILE = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v4'
 
 
 def validate_record(config, probe, build, gpu, now):

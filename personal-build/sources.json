@@ -1,11 +1,11 @@
 {
-  "xmrig_commit": "d052b8b9b5d83d6adadf5f6a127e76ac3faa53aa",
+  "xmrig_commit": "778ef0f43cd5d2e989f117298d2ab1c159b671e8",
   "sources": [
     {
       "name": "xmrig",
       "version": "6.26.0",
-      "url": "https://codeload.github.com/sgalvez/xmrig/tar.gz/d052b8b9b5d83d6adadf5f6a127e76ac3faa53aa",
-      "sha256": "3f90e265aae7e0284e3faa4fa00e92e3a5941928a396d7d1cd75190ac912de68"
+      "url": "https://codeload.github.com/sgalvez/xmrig/tar.gz/778ef0f43cd5d2e989f117298d2ab1c159b671e8",
+      "sha256": "60d1a7206d83b721c5152217d833861c8b05d4b07db5eafdbe757f192187b683"
     },
     {
       "name": "libuv",

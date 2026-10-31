@@ -19,6 +19,7 @@ jobs:
           /tmp/governor-test
           g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread -Itests/personal/fakes -Isrc tests/personal/batches.cpp -o /tmp/batches-test
           /tmp/batches-test
+          python3 tests/personal/privacy.py
       - name: Verify recipe reproduces fork sources
         run: |
           python3 personal-build/apply_hardening.py .

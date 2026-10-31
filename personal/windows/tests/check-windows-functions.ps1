@@ -44,15 +44,15 @@ $Exe = Join-Path $InstallRoot 'xmrig.exe'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $Utf8 = New-Object Text.UTF8Encoding($false)
 $Engine = 'XMRig'
-$SourceCommit = 'd052b8b9b5d83d6adadf5f6a127e76ac3faa53aa'
+$SourceCommit = '778ef0f43cd5d2e989f117298d2ab1c159b671e8'
 $GpuId = 2
 # Do not change SystemRoot: Windows cryptographic providers need the real DLLs.
 function Get-GpuLibraryPath([string]$Name) { return Join-Path (Join-Path $temp 'System32') $Name }
 [void][IO.Directory]::CreateDirectory((Join-Path $temp 'System32'))
 foreach ($name in @('OpenCL.dll','atiadlxx.dll')) { [IO.File]::WriteAllText((Join-Path (Join-Path $temp 'System32') $name), 'Fixture, never loaded.') }
 $Version = 'test'
-$SecurityPolicy = 'rvn-governor-3'
-$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-v3'
+$SecurityPolicy = 'rvn-governor-4'
+$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v4'
 $BuildRoot = Join-Path $temp 'artifacts'
 $TrustFile = Join-Path $temp 'trusted-build.json'
 function Assert-StandardUser { } # Identity APIs require actual Windows; no elevation in fixtures.
@@ -154,7 +154,7 @@ try {
     Assert-Throws { Update-TrialClock $clock 3929 $false 'search' }
     Assert-Equal $settings.opencl.kawpow[0].index 2
     Assert-Equal $settings.opencl.kawpow.Count 1
-    Assert-Equal $settings.'donate-level' 0.5
+    Assert-Equal $settings.'donate-level' 0.0
     Assert-Equal $settings.'health-print-time' 2
     Assert-Throws { Assert-Validated $config }
     $validated = @{mining_profile=$MiningProfile;verified=$true;engine=$Engine;security_policy=$SecurityPolicy;sha256=$ExeHash;gpu_id=2;address=$config.address;worker=$config.worker;pool=$config.pool}

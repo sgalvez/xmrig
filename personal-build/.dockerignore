@@ -8,6 +8,7 @@
 !windows-libs.cmake
 !recipe.py
 !apply_hardening.py
+!verify_privacy.py
 !hardening/
 !hardening/**
 !.dockerignore

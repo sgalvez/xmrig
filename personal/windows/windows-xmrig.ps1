@@ -28,9 +28,9 @@ if ($Action -eq 'Probe') { $TrialSeconds = 300; $Action = 'Run' }
 $Engine = 'XMRig'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $ExeHash = ''
-$SourceCommit = 'd052b8b9b5d83d6adadf5f6a127e76ac3faa53aa'
-$SecurityPolicy = 'rvn-governor-3'
-$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-v3'
+$SourceCommit = '778ef0f43cd5d2e989f117298d2ab1c159b671e8'
+$SecurityPolicy = 'rvn-governor-4'
+$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v4'
 $ProjectRoot = Split-Path -Parent $PSCommandPath
 $BuildRoot = Join-Path $ProjectRoot '.artifacts\windows'
 $TrustFile = Join-Path $ProjectRoot '.trust\windows-build.json'
@@ -471,7 +471,7 @@ function Load-Build([string]$Directory) {
 function Miner-Config($Config, [int]$Device, [string]$Worker, [string]$Log) {
     return @{
         autosave=$false; background=$false; colors=$false; title=$false; watch=$false;
-        'donate-level'=0.5; 'donate-over-proxy'=0; 'log-file'=$Log;
+        'donate-level'=0.0; 'donate-over-proxy'=0; 'log-file'=$Log;
         'print-time'=10; 'health-print-time'=2; dmi=$false;
         cpu=@{enabled=$false; 'huge-pages'=$false}; cuda=@{enabled=$false};
         http=@{enabled=$false}; randomx=@{rdmsr=$false; wrmsr=$false};
