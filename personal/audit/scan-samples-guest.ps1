@@ -18,6 +18,16 @@ $result=[ordered]@{run_id=$manifest.run_id;started_utc=[DateTime]::UtcNow.ToStri
     sample_executed=$false;network='none';verdict='not_assessed';status='preparing'}
 function Save-ScanResult {$script:result|ConvertTo-Json -Depth 12|Set-Content (Join-Path $script:output 'scans.json') -Encoding UTF8}
 try {
+    if($manifest.PSObject.Properties.Name -contains 'enable_pua_block'){
+        if($manifest.enable_pua_block -isnot [bool]){throw 'Politica PUA invalida.'}
+        if($manifest.enable_pua_block){
+            $result.pua_before=(Get-MpPreference).PUAProtection
+            # Strengthen protection only in the verified offline guest; never add exclusions.
+            Set-MpPreference -PUAProtection Enabled
+            $result.pua_after=(Get-MpPreference).PUAProtection
+            if($result.pua_after -ne 1){throw 'No se confirmo bloqueo PUA en la VM.'}
+        }
+    }
     $status=Get-MpComputerStatus; $prefs=Get-MpPreference
     $result.defender=[ordered]@{platform=$status.AMProductVersion;engine=$status.AMEngineVersion;
         signature=$status.AntivirusSignatureVersion;updated=$status.AntivirusSignatureLastUpdated;

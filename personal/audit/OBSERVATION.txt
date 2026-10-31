@@ -53,6 +53,9 @@ del JSON contiene label, path (local) y sha256. run --run-id ID requiere el mism
 snapshot limpio; ejecuta únicamente MpCmdRun.exe firmado por Microsoft dentro
 de la VM, no los mineros. collect --run-id ID recupera scans.json y las salidas.
 No agrega exclusiones, no desactiva remediación y no conecta la VM a Internet.
+prepare --enable-pua-block registra en el manifiesto la activación de bloqueo
+PUA dentro de la VM; el invitado conserva valores antes/después y exige confirmar
+Enabled. Esta opción refuerza la protección del invitado y no cambia el host.
 El código 0 de MpCmdRun no demuestra inocuidad: puede significar ausencia de
 detecciones o remediación completada. Revisar también amenazas, recursos y logs.
 Referencia: https://learn.microsoft.com/en-us/defender-endpoint/command-line-arguments-microsoft-defender-antivirus
