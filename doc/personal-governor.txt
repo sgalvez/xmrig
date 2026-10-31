@@ -1,0 +1,53 @@
+Personal Ravencoin GPU governor (sgalvez fork)
+
+This is a GPL-3.0-or-later derivative of XMRig 6.26.0. The original
+license, copyrights and donation attribution are retained. Personal changes
+also preserve verified TLS, Windows system DLL loading and 0.5% donation.
+
+Opt in on each OpenCL KAWPOW thread profile with "gpu-duty-percent": 25.
+0 or omission preserves upstream scheduling. Accepted values: integer 5..100.
+Use one thread, worksize 128 and intensity 65536 for the initial RX 9070 XT
+trial. GPU index must be selected from the local inventory; it is not portable.
+The percentage limits host-observed GPU batch duty, not clocks, wattage, fan
+speed, or a guaranteed fraction of hashrate. Other applications can heat the GPU.
+
+Both DAG batches (16384 nodes) and search batches wait before their next GPU
+submission. Results are returned without waiting for the following cooldown.
+Controllers are shared by PCI identity and serialize workers on one device.
+Different devices remain independent. A new DAG is marked valid only after
+all batches complete. Stop is checked at most every 50 ms while waiting.
+
+Telemetry: gpu-health JSON v1 identifies PCI address, OpenCL index, polling
+time, source, edge_c, hotspot_c, memory_c, power_w and fan_rpm. Unsupported
+values are null. polled_ms is a monotonic host poll time, not a driver-provided
+hardware measurement timestamp. Unchanged measurements can be legitimate;
+this cannot detect a driver that returns successful but frozen measurements.
+Windows ADL PMLog provides the identified sensors. Overdrive7's old numeric
+temperature selector remains unclassified. The governor requires identified
+edge and hotspot: unsupported drivers, Linux's old sysfs reader and disabled
+ADL fail closed when duty control is enabled. They retain upstream behavior
+when it is disabled. Memory is optional until observed; losing it then faults.
+
+Fixed conservative local limits (C), not AMD's manufacturer ratings:
+               reduce duty    pause    resume    latched cutoff
+  GPU edge          60          70       55             75
+  hotspot           65          75       60             80
+  memory            65          75       60             80
+Reduction: 5 percentage points per second, minimum 5%. Recovery: 1 point
+per 5 seconds up to the configured ceiling. Cooling requires all available
+sensors below resume thresholds and at least 5 seconds paused. Missing,
+implausible or stale (>2 s) samples and cutoff latch a fault until process
+restart. gpu-governor JSON records state, reason, phase and effective duty.
+
+The native controller cannot interrupt a hung driver call or a kernel already
+in flight. Keep the independent process supervisor and hardware thermal
+protection. An exit from a worker is not necessarily an exit from XMRig;
+the supervisor must stop the process when it sees a governor fault. This is
+not a claim that unattended mining or this specific GPU is validated.
+
+Tests: g++ -std=c++11 -Wall -Wextra -Werror -Isrc
+       tests/personal/governor.cpp -o /tmp/governor-test
+       /tmp/governor-test
+Real-device acceptance still requires a bounded trial, comparison with AMD
+Adrenalin edge/hotspot readings, cooling/recovery observation and own pool
+shares. A new executable hash requires a new scan and mining validation.

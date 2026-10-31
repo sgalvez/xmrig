@@ -23,10 +23,27 @@
 
 #include <cstdint>
 #include <vector>
+#include <string>
 
 
 struct AdlHealth
 {
+    int edge = -1;
+    int hotspot = -1;
+    int memory = -1;
+    uint64_t polled = 0;
+    const char *source = "unavailable";
+    bool powerValid = false;
+    bool rpmValid = false;
+    static std::string number(int value) { return value < 0 ? "null" : std::to_string(value); }
+    std::string json(uint32_t gpu, const char *pci) const
+    {
+        return "{\"v\":1,\"gpu\":" + std::to_string(gpu) + ",\"pci\":\"" + pci +
+            "\",\"source\":\"" + source + "\",\"polled_ms\":" + std::to_string(polled) +
+            ",\"edge_c\":" + number(edge) + ",\"hotspot_c\":" + number(hotspot) +
+            ",\"memory_c\":" + number(memory) + ",\"power_w\":" + (powerValid ? std::to_string(power) : "null") +
+            ",\"fan_rpm\":" + (rpmValid ? std::to_string(rpm) : "null") + "}";
+    }
     uint32_t clock          = 0;
     uint32_t memClock       = 0;
     uint32_t power          = 0;

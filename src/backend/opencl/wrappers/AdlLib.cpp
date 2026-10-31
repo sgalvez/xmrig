@@ -23,6 +23,8 @@
 
 
 #include "backend/opencl/wrappers/AdlLib.h"
+#include "base/tools/Chrono.h"
+#include <mutex>
 #include "3rdparty/adl/adl_sdk.h"
 #include "3rdparty/adl/adl_structures.h"
 #include "backend/opencl/wrappers/OclDevice.h"
@@ -98,6 +100,7 @@ static void getFan_v7(const AdapterInfo &adapter, AdlHealth &health)
 
     if (ADL2_OverdriveN_FanControl_Get(nullptr, adapter.iAdapterIndex, &data) == ADL_OK) {
         health.rpm = data.iCurrentFanSpeed;
+        health.rpmValid = data.iCurrentFanSpeed >= 0;
     }
 }
 
@@ -107,6 +110,7 @@ static void getTemp_v7(const AdapterInfo &adapter, AdlHealth &health)
     int temp = 0;
     if (ADL2_OverdriveN_Temperature_Get(nullptr, adapter.iAdapterIndex, 1, &temp) == ADL_OK) {
         health.temperature = temp / 1000;
+        health.source = "adl-overdrive7-unclassified";
     }
 }
 
@@ -128,6 +132,7 @@ static void getPower_v7(const AdapterInfo &adapter, AdlHealth &health)
     int power = 0;
     if (ADL2_Overdrive6_CurrentPower_Get && ADL2_Overdrive6_CurrentPower_Get(nullptr, adapter.iAdapterIndex, 0, &power) == ADL_OK) {
         health.power = static_cast<uint32_t>(power / 256.0);
+        health.powerValid = power >= 0;
     }
 }
 
@@ -152,6 +157,16 @@ static void getSensorsData_v8(const AdapterInfo &adapter, AdlHealth &health)
     health.power        = sensorValue(PMLOG_ASIC_POWER);
     health.rpm          = sensorValue(PMLOG_FAN_RPM);
     health.temperature  = sensorValue(PMLOG_TEMPERATURE_HOTSPOT);
+    auto temperature = [&data](ADLSensorType type) {
+        const auto &s = data.sensors[type];
+        return s.supported && s.value > 0 && s.value <= 150 ? s.value : -1;
+    };
+    health.edge = temperature(PMLOG_TEMPERATURE_EDGE);
+    health.hotspot = temperature(PMLOG_TEMPERATURE_HOTSPOT);
+    health.memory = temperature(PMLOG_TEMPERATURE_MEM);
+    health.source = "adl-pmlog";
+    health.powerValid = data.sensors[PMLOG_ASIC_POWER].supported && data.sensors[PMLOG_ASIC_POWER].value >= 0;
+    health.rpmValid = data.sensors[PMLOG_FAN_RPM].supported && data.sensors[PMLOG_FAN_RPM].value >= 0;
 }
 
 
@@ -187,6 +202,8 @@ void xmrig::AdlLib::close()
 
 AdlHealth xmrig::AdlLib::health(const OclDevice &device)
 {
+    static std::mutex sensorMutex;
+    std::lock_guard<std::mutex> lock(sensorMutex);
     if (!isReady() || device.vendorId() != OCL_VENDOR_AMD) {
         return {};
     }
@@ -216,6 +233,7 @@ AdlHealth xmrig::AdlLib::health(const OclDevice &device)
         }
     }
 
+    health.polled = Chrono::steadyMSecs();
     return health;
 }
 

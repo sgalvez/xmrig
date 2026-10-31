@@ -244,6 +244,7 @@ public:
 
         for (const auto &device : devices) {
             const auto health = AdlLib::health(device);
+            LOG_INFO("gpu-health %s", health.json(device.index(), device.topology().toString().data()).c_str());
 
             LOG_INFO("%s" CYAN_BOLD(" #%u") YELLOW(" %s") MAGENTA_BOLD("%4uW") CSI "1;%um %2uC" CYAN_BOLD(" %4u") CYAN("RPM") WHITE_BOLD(" %u/%u") "MHz",
                      Tags::opencl(),

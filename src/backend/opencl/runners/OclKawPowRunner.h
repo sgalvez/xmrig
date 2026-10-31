@@ -24,6 +24,8 @@
 #include "crypto/kawpow/KPCache.h"
 
 #include <mutex>
+#include <memory>
+namespace xmrig { namespace personal { struct OclGovernor; } }
 
 namespace xmrig {
 
@@ -48,6 +50,7 @@ protected:
     uint32_t processedHashes() const override { return m_intensity - m_skippedHashes; }
 
 private:
+    std::shared_ptr<personal::OclGovernor> m_governor;
     uint8_t* m_blob = nullptr;
     uint32_t m_skippedHashes = 0;
 

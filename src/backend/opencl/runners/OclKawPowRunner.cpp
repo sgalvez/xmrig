@@ -17,6 +17,7 @@
  */
 
 #include <stdexcept>
+#include "personal/OclGovernor.h"
 
 
 #include "backend/opencl/runners/OclKawPowRunner.h"
@@ -44,6 +45,7 @@ constexpr size_t BLOB_SIZE = 40;
 
 OclKawPowRunner::OclKawPowRunner(size_t index, const OclLaunchData &data) : OclBaseRunner(index, data)
 {
+    m_governor = personal::OclGovernor::acquire(data);
     switch (data.thread.worksize())
     {
     case 64:
@@ -77,6 +79,7 @@ OclKawPowRunner::~OclKawPowRunner()
 
 void OclKawPowRunner::run(uint32_t nonce, uint32_t /*nonce_offset*/, uint32_t *hashOutput)
 {
+    personal::GpuBatch budget(m_governor, data(), "search");
     const size_t local_work_size = m_workGroupSize;
     const size_t global_work_offset = nonce;
     const size_t global_work_size = m_intensity - (m_intensity % m_workGroupSize);
@@ -103,6 +106,7 @@ void OclKawPowRunner::run(uint32_t nonce, uint32_t /*nonce_offset*/, uint32_t *h
     uint32_t output[16] = {};
     enqueueReadBuffer(m_output, CL_TRUE, 0, sizeof(output), output);
 
+    budget.complete();
     m_skippedHashes = stop[1] * m_workGroupSize;
 
     if (output[0] > 15) {
@@ -130,7 +134,6 @@ void OclKawPowRunner::set(const Job &job, uint8_t *blob)
     }
 
     if (epoch != m_epoch) {
-        m_epoch = epoch;
 
         {
             std::lock_guard<std::mutex> lock(KPCache::s_cacheMutex);
@@ -153,14 +156,22 @@ void OclKawPowRunner::set(const Job &job, uint8_t *blob)
         const uint32_t dag_words = dag_size / sizeof(node);
         m_calculateDagKernel->setArgs(0, m_lightCache, m_dag, dag_words, m_lightCacheSize / sizeof(node));
 
-        constexpr uint32_t N = 1 << 18;
+        const uint32_t N = m_governor ? (1 << 14) : (1 << 18);
 
         for (uint32_t start = 0; start < dag_words; start += N) {
+            personal::GpuBatch budget(m_governor, data(), "dag");
             m_calculateDagKernel->setArg(0, sizeof(start), &start);
             m_calculateDagKernel->enqueue(m_queue, N, m_dagWorkGroupSize);
+            if (m_governor && OclLib::finish(m_queue) != CL_SUCCESS) {
+                throw std::runtime_error("DAG queue completion failed");
+            }
+            budget.complete();
         }
 
-        OclLib::finish(m_queue);
+        if (OclLib::finish(m_queue) != CL_SUCCESS) {
+            throw std::runtime_error("DAG queue completion failed");
+        }
+        m_epoch = epoch;
 
         LOG_INFO("%s " YELLOW("KawPow") " DAG for epoch " WHITE_BOLD("%u") " calculated " BLACK_BOLD("(%" PRIu64 "ms)"), Tags::opencl(), epoch, Chrono::steadyMSecs() - start_ms);
     }

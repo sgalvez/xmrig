@@ -22,6 +22,7 @@
 
 
 #include <algorithm>
+#include <stdexcept>
 
 
 namespace xmrig {
@@ -48,6 +49,13 @@ xmrig::OclThread::OclThread(const rapidjson::Value &value)
         return;
     }
 
+    if (value.HasMember("gpu-duty-percent")) {
+        const auto &duty = value["gpu-duty-percent"];
+        if (!duty.IsUint() || (duty.GetUint() != 0 && (duty.GetUint() < 5 || duty.GetUint() > 100))) {
+            throw std::invalid_argument("gpu-duty-percent must be 0 or an integer 5..100");
+        }
+        m_gpuDuty = duty.GetUint();
+    }
     m_index         = Json::getUint(value, kIndex);
     m_worksize      = std::max(std::min(Json::getUint(value, kWorksize), 512U), 1U);
     m_unrollFactor  = std::max(std::min(Json::getUint(value, kUnroll, m_unrollFactor), 128U), 1U);
@@ -93,7 +101,7 @@ xmrig::OclThread::OclThread(const rapidjson::Value &value)
 
 bool xmrig::OclThread::isEqual(const OclThread &other) const
 {
-    return other.m_threads.size() == m_threads.size() &&
+    return other.m_gpuDuty == m_gpuDuty && other.m_threads.size() == m_threads.size() &&
            std::equal(m_threads.begin(), m_threads.end(), other.m_threads.begin()) &&
            other.m_bfactor      == m_bfactor &&
            other.m_datasetHost  == m_datasetHost &&
@@ -113,6 +121,7 @@ rapidjson::Value xmrig::OclThread::toJSON(rapidjson::Document &doc) const
     auto &allocator = doc.GetAllocator();
 
     Value out(kObjectType);
+    out.AddMember("gpu-duty-percent", m_gpuDuty, allocator);
 
     out.AddMember(StringRef(kIndex),        index(), allocator);
     out.AddMember(StringRef(kIntensity),    intensity(), allocator);

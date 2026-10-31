@@ -24,6 +24,7 @@
 
 
 #include <bitset>
+#include <cstdint>
 #include <vector>
 
 
@@ -77,6 +78,7 @@ public:
 
     OclThread(const rapidjson::Value &value);
 
+    inline uint32_t gpuDuty() const { return m_gpuDuty; }
     inline bool isAsm() const                               { return m_gcnAsm; }
     inline bool isDatasetHost() const                       { return m_datasetHost; }
     inline bool isValid() const                             { return m_intensity > 0; }
@@ -105,6 +107,7 @@ private:
 
     inline void setIntensity(uint32_t intensity)            { m_intensity = intensity / m_worksize * m_worksize; }
 
+    uint32_t m_gpuDuty = 0;
     bool m_datasetHost              = false;
     bool m_gcnAsm                   = true;
     std::bitset<FIELD_MAX> m_fields = 1;
