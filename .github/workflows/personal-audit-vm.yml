@@ -1,0 +1,17 @@
+name: Personal offline VM preparation tests
+on:
+  push:
+    branches: ['personal/rvn-gpu-governor']
+    paths: ['personal/audit/**', '.github/workflows/personal-audit-vm.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  powershell-validation:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Parse and test isolation without creating a VM or downloading Windows
+        shell: powershell
+        run: ./personal/audit/tests/check-vbox-prepare.ps1 -ScriptPath ./personal/audit/vbox-windows.ps1

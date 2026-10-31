@@ -1,0 +1,46 @@
+WINDOWS 11 HOME: PREPARACION HEADLESS DE UNA VM LIMPIA
+
+PowerShell normal, bajo el mismo usuario que instalo VirtualBox:
+  $Proyecto = '\\wsl.localhost\Ubuntu\home\sgalvez\zerocool\xmrig-personal-lab'
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Proyecto\audit-isolated\vbox-windows.ps1" -Action prepare
+
+Descarga con curl.exe una ISO de evaluacion de Windows 11 Enterprise x64 es-ES,
+mediante HTTPS desde la URL oficial de Microsoft fijada en el script. Guarda .part
+y permite reanudar una descarga interrumpida. El SHA local es una huella de la
+descarga; no se presenta como comparacion con un hash publicado por Microsoft.
+
+Almacenamiento: %LOCALAPPDATA%\XmrigIsolatedAudit\VirtualBox
+VM: Xmrig-Audit-Win11, 8 GB RAM, 4 CPU, VDI dinamico hasta 80 GB, UEFI/TPM2/SecureBoot.
+Sin red, carpetas compartidas, portapapeles, drag and drop, USB, audio, VRDE ni 3D.
+No cambia Defender ni la configuracion de WSL/Docker/Hyper-V del host.
+No se instalan Guest Additions o servicios remotos. No se copia o ejecuta el minero.
+El usuario local audituser y su clave aleatoria se usan solo en esta VM desechable.
+La clave y los archivos unattended permanecen en la carpeta protegida por ACL del
+usuario de Windows. No publicar guest-password.txt, unattended-prepare.log ni los
+archivos de respuesta generados, pues contienen credenciales de esa VM.
+
+El preparador solo crea una VM nueva, nunca borra o reinstala una existente.
+Si falla tras crearla, conserva estado para diagnostico; no repite pasos de disco.
+La instalacion desatendida arranca headless, pero su finalizacion se debe comprobar.
+Una VM encendida no implica Windows instalado ni un resultado de auditoria.
+
+Consultar estado / capturar pantalla / solicitar apagado ordenado:
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Proyecto\audit-isolated\vbox-windows.ps1" -Action status
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Proyecto\audit-isolated\vbox-windows.ps1" -Action screenshot
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Proyecto\audit-isolated\vbox-windows.ps1" -Action stop
+
+Capturas y estado se guardan en .runtime/vbox-audit dentro del proyecto; el asistente
+puede leerlos. No contienen las credenciales. Tras apagar, -Action start reinicia la
+VM solo si la preparacion termino y las comprobaciones de aislamiento pasan.
+
+LIMITES
+Este script prepara el Windows invitado; NO implementa todavia la captura Procmon
+para VirtualBox. run-inside.ps1 sigue restringido a Windows Sandbox. No cambiar
+su comprobacion de usuario para ejecutarlo en el host o forzarlo en esta VM.
+Despues de comprobar la instalacion limpia, se preparara un snapshot y un medio
+de entrada de auditoria, con validacion de hash y un observador especifico para VM.
+La prueba offline no demuestra seguridad del minero con pool/GPU reales.
+
+Referencias:
+https://www.microsoft.com/en-us/evalcenter/download-windows-11-enterprise
+https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/vboxmanage.html
