@@ -85,9 +85,18 @@ function Suspend-AuditWork {
 function Export-Status {
     $info = Get-ManagedInfo
     New-Item -ItemType Directory -Path $script:Evidence -Force | Out-Null
+    $auditStage='unknown'
+    $minerStaged=$null
+    $activePath=Join-Path $script:Evidence 'active-run.json'
+    if (Test-Path -LiteralPath $activePath) {
+        $active=Get-Content -LiteralPath $activePath -Raw | ConvertFrom-Json
+        $auditStage=[string]$active.stage
+        if($auditStage -eq 'baseline-restored'){$minerStaged=$false}
+        elseif($auditStage -in @('staged','launch-requested','observer-returned')){$minerStaged=$true}
+    }
     $summary = [ordered]@{
         name=$script:State.name; uuid=$script:State.uuid; state=$info['VMState']; stage=$script:State.stage
-        checked_utc=[DateTime]::UtcNow.ToString('o'); miner_staged=$false
+        checked_utc=[DateTime]::UtcNow.ToString('o'); miner_staged=$minerStaged; audit_stage=$auditStage
         note='VMState=running solo indica VM encendida; no confirma instalacion de Windows ni auditoria.'
     }
     $summary | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:Evidence 'status.json') -Encoding UTF8

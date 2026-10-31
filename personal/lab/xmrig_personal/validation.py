@@ -9,7 +9,7 @@ class ValidationError(ValueError):
     pass
 
 ENGINE = 'XMRig'
-COMMIT = 'b3dc71ad9234ca870486ea1bab83dbdd902827e3'
+COMMIT = 'a5de7a74c726b583b6bbfc3ccb045b09abf68db2'
 POLICY = 'rvn-governor-4'
 MINING_PROFILE = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v4'
 
