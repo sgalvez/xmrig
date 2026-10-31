@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2008-2018 Advanced Micro Devices, Inc.
  * Copyright (c) 2018-2021 SChernykh                    <https://github.com/SChernykh>
@@ -221,7 +222,10 @@ AdlHealth xmrig::AdlLib::health(const OclDevice &device)
 
 bool xmrig::AdlLib::dlopen()
 {
-    return uv_dlopen("atiadlxx.dll", &adlLib) == 0;
+    // Search only System32, including dependencies; never the miner directory or PATH.
+    adlLib.errmsg = nullptr;
+    adlLib.handle = LoadLibraryExW(L"atiadlxx.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    return adlLib.handle != nullptr;
 }
 
 

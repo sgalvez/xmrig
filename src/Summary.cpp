@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2018-2022 SChernykh   <https://github.com/SChernykh>
  * Copyright (c) 2016-2022 XMRig       <support@xmrig.com>
@@ -171,7 +172,7 @@ static void print_memory(const Config *config)
 
 static void print_threads(const Config *config)
 {
-    Log::print(GREEN_BOLD(" * ") WHITE_BOLD("%-13s") WHITE_BOLD("%s%d%%"),
+    Log::print(GREEN_BOLD(" * ") WHITE_BOLD("%-13s") WHITE_BOLD("%s%g%%"),
                "DONATE",
                config->pools().donateLevel() == 0 ? RED_BOLD_S : "",
                config->pools().donateLevel()

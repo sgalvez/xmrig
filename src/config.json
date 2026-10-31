@@ -1,4 +1,5 @@
 {
+    "_personal_changes": "2026-10-30: default donation 0.5 percent",
     "api": {
         "id": null,
         "worker-id": null
@@ -55,7 +56,7 @@
         "cn/0": false,
         "cn-lite/0": false
     },
-    "donate-level": 1,
+    "donate-level": 0.5,
     "donate-over-proxy": 1,
     "log-file": null,
     "pools": [

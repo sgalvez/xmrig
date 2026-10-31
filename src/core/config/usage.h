@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2010      Jeff Garzik <jgarzik@pobox.com>
  * Copyright (c) 2012-2014 pooler      <pooler@litecoinpool.org>
@@ -72,7 +73,7 @@ static inline const std::string &usage()
     u += "  -r, --retries=N               number of times to retry before switch to backup server (default: 5)\n";
     u += "  -R, --retry-pause=N           time to pause between retries (default: 5)\n";
     u += "      --user-agent              set custom user-agent string for pool\n";
-    u += "      --donate-level=N          donate level, default 1%% (1 minute in 100 minutes)\n";
+    u += "      --donate-level=N          donate level, default 0.5%% (30 seconds in 100 minutes)\n";
     u += "      --donate-over-proxy=N     control donate over xmrig-proxy feature\n";
 
     u += "\nCPU backend:\n";

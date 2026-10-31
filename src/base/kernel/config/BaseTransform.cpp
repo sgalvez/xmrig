@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2018-2025 SChernykh   <https://github.com/SChernykh>
  * Copyright (c) 2016-2025 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
@@ -238,11 +239,19 @@ void xmrig::BaseTransform::transform(rapidjson::Document &doc, int key, const ch
         return set(doc, BaseConfig::kTls, TlsConfig::kGen, arg);
 #   endif
 
+    case IConfig::DonateLevelKey: { /* fractional --donate-level */
+        char *end = nullptr;
+        const double level = strtod(arg, &end);
+        if (end != arg && *end == '\0' && level >= 0.5 && level <= 99.0) {
+            set(doc, Pools::kDonateLevel, level);
+        }
+        return;
+    }
+
     case IConfig::RetriesKey:       /* --retries */
     case IConfig::RetryPauseKey:    /* --retry-pause */
     case IConfig::PrintTimeKey:     /* --print-time */
     case IConfig::HttpPort:         /* --http-port */
-    case IConfig::DonateLevelKey:   /* --donate-level */
     case IConfig::DaemonPollKey:    /* --daemon-poll-interval */
     case IConfig::DaemonJobTimeoutKey: /* --daemon-job-timeout */
     case IConfig::DnsTtlKey:        /* --dns-ttl */

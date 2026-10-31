@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2018-2022 SChernykh   <https://github.com/SChernykh>
  * Copyright (c) 2016-2022 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
@@ -37,8 +38,8 @@
  * If you plan on changing donations to 0%, please consider making a one-off donation to my wallet:
  * XMR: 48edfHu7V9Z84YzzMa6fUueoELZ9ZRXq9VetWzYGzKt52XU5xvqgzYnDK9URnRoJMk1j8nLwEVsaSWJ4fhdUyZijBGUicoD
  */
-constexpr const int kDefaultDonateLevel = 1;
-constexpr const int kMinimumDonateLevel = 1;
+constexpr const double kDefaultDonateLevel = 0.5;
+constexpr const double kMinimumDonateLevel = 0.5;
 
 
 #endif // XMRIG_DONATE_H

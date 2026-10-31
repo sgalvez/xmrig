@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright 2010      Jeff Garzik <jgarzik@pobox.com>
  * Copyright 2012-2014 pooler      <pooler@litecoinpool.org>
@@ -72,7 +73,7 @@ public:
     inline bool operator==(const Pools &other) const    { return isEqual(other); }
 
     bool isEqual(const Pools &other) const;
-    int donateLevel() const;
+    double donateLevel() const;
     IStrategy *createStrategy(IStrategyListener *listener) const;
     rapidjson::Value toJSON(rapidjson::Document &doc) const;
     size_t active() const;
@@ -82,12 +83,12 @@ public:
     void toJSON(rapidjson::Value &out, rapidjson::Document &doc) const;
 
 private:
-    void setDonateLevel(int level);
+    void setDonateLevel(double level);
     void setProxyDonate(int value);
     void setRetries(int retries);
     void setRetryPause(int retryPause);
 
-    int m_donateLevel;
+    double m_donateLevel;
     int m_retries               = 5;
     int m_retryPause            = 5;
     ProxyDonate m_proxyDonate   = PROXY_DONATE_AUTO;

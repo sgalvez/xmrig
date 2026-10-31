@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2018-2023 SChernykh   <https://github.com/SChernykh>
  * Copyright (c) 2016-2023 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
@@ -36,6 +37,7 @@
 #include "core/Controller.h"
 #include "core/Miner.h"
 #include "net/Network.h"
+#include "personal/DonationPolicy.h"
 
 
 namespace xmrig {
@@ -52,8 +54,8 @@ static const char *kDonateHostTls = "donate.ssl.xmrig.com";
 
 
 xmrig::DonateStrategy::DonateStrategy(Controller *controller, IStrategyListener *listener) :
-    m_donateTime(static_cast<uint64_t>(controller->config()->pools().donateLevel()) * 60 * 1000),
-    m_idleTime((100 - static_cast<uint64_t>(controller->config()->pools().donateLevel())) * 60 * 1000),
+    m_donateTime(personal::donationMillis(controller->config()->pools().donateLevel())),
+    m_idleTime(personal::normalMillis(controller->config()->pools().donateLevel())),
     m_controller(controller),
     m_listener(listener)
 {
@@ -72,7 +74,10 @@ xmrig::DonateStrategy::DonateStrategy(Controller *controller, IStrategyListener 
 #   ifdef XMRIG_FEATURE_TLS
     m_pools.emplace_back(kDonateHostTls, 443, m_userId, nullptr, nullptr, 0, true, true, mode);
 #   endif
-    m_pools.emplace_back(kDonateHost, 3333, m_userId, nullptr, nullptr, 0, true, false, mode);
+    // Personal build: no plaintext fallback, including developer donation.
+#ifndef XMRIG_FEATURE_TLS
+#error Personal build requires authenticated TLS
+#endif
 
     if (m_pools.size() > 1) {
         m_strategy = new FailoverStrategy(m_pools, 10, 2, this, true);

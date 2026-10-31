@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2018      Lee Clagett <https://github.com/vtnerd>
  * Copyright (c) 2018-2021 SChernykh   <https://github.com/SChernykh>
@@ -30,18 +31,20 @@
 
 #include <cassert>
 #include <openssl/ssl.h>
+#include "personal/TlsPolicy.h"
 
 
 xmrig::Client::Tls::Tls(Client *client) :
     m_client(client)
 {
-    m_ctx = SSL_CTX_new(SSLv23_method());
+    m_ctx = SSL_CTX_new(TLS_client_method());
     assert(m_ctx != nullptr);
 
     if (!m_ctx) {
         return;
     }
 
+    m_trustReady = personal::configureContext(m_ctx);
     m_write = BIO_new(BIO_s_mem());
     m_read  = BIO_new(BIO_s_mem());
     SSL_CTX_set_options(m_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
@@ -62,6 +65,10 @@ xmrig::Client::Tls::~Tls()
 
 bool xmrig::Client::Tls::handshake(const char* servername)
 {
+    if (!m_ctx || !m_trustReady) {
+        LOG_ERR("TLS trust store unavailable; refusing connection");
+        return false;
+    }
     m_ssl = SSL_new(m_ctx);
     assert(m_ssl != nullptr);
 
@@ -69,9 +76,8 @@ bool xmrig::Client::Tls::handshake(const char* servername)
         return false;
     }
 
-    if (servername) {
-        SSL_set_tlsext_host_name(m_ssl, servername);
-    }
+    // Always authenticate the configured host, independently of the optional SNI setting.
+    if (!personal::configurePeer(m_ssl, m_client->m_pool.host().data())) { return false; }
 
     SSL_set_connect_state(m_ssl);
     SSL_set_bio(m_ssl, m_read, m_write);
@@ -110,6 +116,9 @@ void xmrig::Client::Tls::read(const char *data, size_t size)
 
         if (rc < 0 && SSL_get_error(m_ssl, rc) == SSL_ERROR_WANT_READ) {
             send();
+        } else if (rc != 1) {
+            LOG_ERR("[%s] TLS authentication/handshake failed; refusing connection", m_client->url());
+            m_client->close();
         } else if (rc == 1) {
             X509 *cert = SSL_get_peer_certificate(m_ssl);
             if (!verify(cert)) {
@@ -144,7 +153,7 @@ bool xmrig::Client::Tls::send()
 
 bool xmrig::Client::Tls::verify(X509 *cert)
 {
-    if (cert == nullptr) {
+    if (SSL_get_verify_result(m_ssl) != X509_V_OK || cert == nullptr) {
         LOG_ERR("[%s] Failed to get server certificate", m_client->url());
 
         return false;

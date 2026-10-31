@@ -1,3 +1,4 @@
+// Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2018      Lee Clagett <https://github.com/vtnerd>
  * Copyright (c) 2018-2021 SChernykh   <https://github.com/SChernykh>
@@ -56,6 +57,7 @@ private:
     BIO *m_read     = nullptr;
     BIO *m_write    = nullptr;
     bool m_ready    = false;
+    bool m_trustReady = false;
     char m_fingerprint[32 * 2 + 8]{};
     Client *m_client;
     SSL *m_ssl      = nullptr;
