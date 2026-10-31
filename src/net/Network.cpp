@@ -27,6 +27,7 @@
 #include "backend/common/Tags.h"
 #include "base/io/log/Log.h"
 #include "base/io/log/Tags.h"
+#include "base/kernel/interfaces/IStrategy.h"
 #include "base/net/stratum/Client.h"
 #include "base/net/stratum/NetworkState.h"
 #include "base/net/stratum/SubmitResult.h"
