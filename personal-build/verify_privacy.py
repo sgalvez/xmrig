@@ -2,7 +2,8 @@
 from pathlib import Path
 import sys
 
-FORBIDDEN = (b'donate.v2.xmrig.com', b'donate.ssl.xmrig.com', b'benchmark.xmrig.com')
+FORBIDDEN = (b'donate.v2.xmrig.com', b'donate.ssl.xmrig.com',
+             b'api.xmrig.com', b'randomx.xmrig.com', b'benchmark.xmrig.com')
 
 
 def verify(path):
