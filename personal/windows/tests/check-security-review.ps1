@@ -10,8 +10,8 @@ function Assert-Fails([scriptblock]$Body) { $failed=$false; try { & $Body } catc
 function Assert-StandardUser { }
 function Owned-Process($State) { return $null }
 function Get-MpComputerStatus { param($ErrorAction) return @{AntivirusEnabled=$true;RealTimeProtectionEnabled=$true} }
-function Get-MpThreatDetection { param($ErrorAction) return $script:detections }
-function Get-MpThreat { param($ErrorAction) return $script:threats }
+function Get-MpThreatDetection { param($ErrorAction) return @($script:detections | ForEach-Object { [pscustomobject]$_ }) }
+function Get-MpThreat { param($ErrorAction) return @($script:threats | ForEach-Object { [pscustomobject]$_ }) }
 function Get-CimClass { param($Namespace,$ClassName,$ErrorAction) throw 'No WMI in portable test.' }
 function Invoke-DefenderScan([string]$Directory) {
     Assert-Equal $Directory $BuildRoot
@@ -29,7 +29,7 @@ function Invoke-DefenderScan([string]$Directory) {
 $base=Join-Path ([IO.Path]::GetTempPath()) ('xmrig-review-test-'+[guid]::NewGuid())
 $Utf8=New-Object Text.UTF8Encoding($false)
 $Engine='XMRig'; $Version='6.26.0'; $SecurityPolicy='rvn-governor-1'
-$SourceCommit='3b4e4192b66f1d01fbed4d31dbc5091072da7e3b'
+$SourceCommit='a99b12b93969a9f658bc774718a723ffd4c88766'
 try {
     $scenarios = @('eight-success','eight-error','eight-missing-error','eight-executed','eight-missing-executed',
         'eight-allowed-execution','eight-missing-date','eight-reversed-dates','eight-current-build',

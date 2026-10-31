@@ -29,15 +29,24 @@ struct OclGovernor {
     static std::shared_ptr<OclGovernor> acquire(const OclLaunchData &data)
     {
         const auto duty = data.thread.gpuDuty();
-        if (!duty) { return {}; }
-        if (data.device.vendorId() != OCL_VENDOR_AMD) {
+        if (duty && data.device.vendorId() != OCL_VENDOR_AMD) {
             throw std::runtime_error("GPU governor requires AMD edge and hotspot telemetry");
+        }
+        if (duty && data.thread.intensity() > 65536) {
+            throw std::runtime_error("Governed KAWPOW requires intensity <= 65536 to bound search batches");
         }
         static std::mutex registryMutex;
         // Keep faults latched even when a job/profile recreates the workers.
         static std::map<std::string, std::shared_ptr<OclGovernor>> registry;
+        static std::map<std::string, unsigned> profiles;
         std::lock_guard<std::mutex> lock(registryMutex);
         const std::string pci(data.device.topology().toString().data());
+        const auto profile = profiles.find(pci);
+        if (profile != profiles.end() && profile->second != duty) {
+            throw std::runtime_error("Conflicting GPU duty profiles: restart miner to change policy");
+        }
+        profiles[pci] = duty;
+        if (!duty) { return {}; }
         auto &entry = registry[pci];
         if (!entry) { entry = std::make_shared<OclGovernor>(duty); }
         if (entry->policy.maximum() != duty) {

@@ -26,7 +26,7 @@ if ($Action -eq 'Probe') { $TrialSeconds = 300; $Action = 'Run' }
 $Engine = 'XMRig'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $ExeHash = ''
-$SourceCommit = '3b4e4192b66f1d01fbed4d31dbc5091072da7e3b'
+$SourceCommit = 'a99b12b93969a9f658bc774718a723ffd4c88766'
 $SecurityPolicy = 'rvn-governor-1'
 $MiningProfile = 'rx9070xt-duty25-intensity65536-v1'
 $ProjectRoot = Split-Path -Parent $PSCommandPath

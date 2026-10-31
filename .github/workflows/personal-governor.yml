@@ -28,6 +28,8 @@ jobs:
         run: |
           g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/personal/governor.cpp -o /tmp/governor-test
           /tmp/governor-test
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread -Itests/personal/fakes -Isrc tests/personal/batches.cpp -o /tmp/batches-test
+          /tmp/batches-test
       - name: Verify recipe reproduces fork sources
         run: |
           python3 personal-build/apply_hardening.py .

@@ -44,7 +44,7 @@ $Exe = Join-Path $InstallRoot 'xmrig.exe'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $Utf8 = New-Object Text.UTF8Encoding($false)
 $Engine = 'XMRig'
-$SourceCommit = '3b4e4192b66f1d01fbed4d31dbc5091072da7e3b'
+$SourceCommit = 'a99b12b93969a9f658bc774718a723ffd4c88766'
 $GpuId = 2
 $env:SystemRoot = $temp
 [void][IO.Directory]::CreateDirectory((Join-Path $temp 'System32'))

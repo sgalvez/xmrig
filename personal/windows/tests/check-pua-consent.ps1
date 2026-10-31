@@ -17,7 +17,7 @@ function Get-MpThreatDetection {
     return $script:detections
 }
 $Engine='XMRig'; $Version='6.26.0'; $SecurityPolicy='rvn-governor-1'
-$SourceCommit='3b4e4192b66f1d01fbed4d31dbc5091072da7e3b'
+$SourceCommit='a99b12b93969a9f658bc774718a723ffd4c88766'
 $Utf8=New-Object Text.UTF8Encoding($false)
 $base=Join-Path ([IO.Path]::GetTempPath()) ('xmrig-pua-test-'+[guid]::NewGuid())
 $scenarios=@('success','missing-install','missing-install-directory','missing-source','wrong-hash','changed-source','changed-install','wrong-name','wrong-threat',
