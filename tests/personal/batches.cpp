@@ -3,6 +3,8 @@
 #include "personal/OclGovernor.h"
 #include <cassert>
 #include <iostream>
+std::mutex testLogMutex;
+std::vector<std::string> testLogLines;
 std::atomic<bool> xmrig::Nonce::stopped{false};
 std::atomic<int> xmrig::AdlLib::hotspot{55};
 using namespace xmrig;
@@ -45,6 +47,10 @@ int main()
         OclLaunchData c;
         c.device.pci.id=std::string("thermal-")+phase;
         auto thermal=OclGovernor::acquire(c);
+        AdlLib::hotspot=55;
+        { GpuBatch warm(thermal,c,phase); warm.complete(); }
+        { std::lock_guard<std::mutex> lock(testLogMutex); testLogLines.clear(); }
+        thermal->last.polled=0; // Force a new sensor reading inside the heartbeat window.
         AdlLib::hotspot=80;
         std::atomic<bool> admitted{false};
         std::thread cooler([&]() {
@@ -53,6 +59,12 @@ int main()
         });
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         assert(!admitted); // No kernel submission while halted.
+        {
+            std::lock_guard<std::mutex> lock(testLogMutex);
+            bool coolingLogged=false;
+            for(const auto &line : testLogLines) coolingLogged |= line.find("\"state\":\"cooling\"")!=std::string::npos;
+            assert(coolingLogged); // UI/trial clocks must see a halt immediately.
+        }
         AdlLib::hotspot=60;
         const auto deadline=Chrono::steadyMSecs()+2000;
         while(!admitted && Chrono::steadyMSecs()<deadline) std::this_thread::sleep_for(std::chrono::milliseconds(10));

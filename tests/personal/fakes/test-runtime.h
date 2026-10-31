@@ -4,9 +4,19 @@
 #include <atomic>
 #include <chrono>
 #include <string>
+#include <vector>
+#include <mutex>
+#include <cstdio>
 #include "backend/opencl/wrappers/AdlHealth.h"
 #define XMRIG_FEATURE_ADL
-template<typename... Args> void testLog(const char *, Args...) {}
+extern std::mutex testLogMutex;
+extern std::vector<std::string> testLogLines;
+template<typename... Args> void testLog(const char *format, Args... args) {
+    char buffer[2048];
+    std::snprintf(buffer, sizeof(buffer), format, args...);
+    std::lock_guard<std::mutex> lock(testLogMutex);
+    testLogLines.emplace_back(buffer);
+}
 #define LOG_INFO(...) testLog(__VA_ARGS__)
 namespace xmrig {
 enum { OCL_VENDOR_AMD=1 };

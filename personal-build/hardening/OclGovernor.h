@@ -27,6 +27,7 @@ struct OclGovernor {
     uint64_t logged = 0;
     uint32_t dagDone = 0, dagTotal = 0;
     std::string loggedPhase;
+    GpuGovernor::State loggedState = GpuGovernor::State::Running;
 
     static std::shared_ptr<OclGovernor> acquire(const OclLaunchData &data)
     {
@@ -74,12 +75,15 @@ struct OclGovernor {
                 now = Chrono::steadyMSecs();
                 policy.sample(last, now);
             }
-            if (!logged || loggedPhase != phase || now - logged >= 1000 || policy.state() == GpuGovernor::State::Fault) {
+            // Report transitions immediately; a short thermal halt must not be
+            // hidden by the one-second heartbeat (UI and trial clocks use it).
+            if (!logged || loggedPhase != phase || loggedState != policy.state() || now - logged >= 1000 || policy.state() == GpuGovernor::State::Fault) {
                 LOG_INFO("gpu-governor {\"v\":1,\"gpu\":%u,\"pci\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"phase\":\"%s\",\"duty_percent\":%u,\"edge_c\":%s,\"hotspot_c\":%s,\"memory_c\":%s,\"dag_done\":%u,\"dag_total\":%u}",
                          data.device.index(), data.device.topology().toString().data(), policy.name(), policy.reason(), phase, policy.effectiveDuty(),
                          AdlHealth::number(last.edge).c_str(), AdlHealth::number(last.hotspot).c_str(), AdlHealth::number(last.memory).c_str(), dagDone, dagTotal);
                 logged = now;
                 loggedPhase = phase;
+                loggedState = policy.state();
             }
             if (policy.state() == GpuGovernor::State::Fault) { throw std::runtime_error(policy.reason()); }
             const bool paused = Nonce::isPaused();
