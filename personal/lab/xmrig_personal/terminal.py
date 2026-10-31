@@ -281,7 +281,7 @@ def render(window, raw, history, now, page='overview', scroll=0, colors=True):
                        'Cobro: '+str(data.get('address','--')),
                        'Modo: '+('PRUEBA DE CINCO MINUTOS' if miner.get('trial') else 'SESIÓN NORMAL'),
                        'Proceso: '+str(miner.get('process','Sin verificar')),
-                       ('Corte GPU / hotspot / memoria: 75 / 80 / 80 C',DIM)]
+                       ('Pausa >=80 C / reanuda todos <=60 C',DIM)]
             s.panel(top,left,8,w-left,'05 SESIÓN',session)
             top += 8
         else:

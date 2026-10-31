@@ -38,6 +38,10 @@ def view(data):
     active = heartbeat and engine_matches and miner.get("running") is True
     address_matches = miner.get("address") == config.get("address") and bool(config)
     recent_work = pool_fresh and share_age is not None and 0 <= share_age < 180
+    governor_stamp = number(miner.get('governor_updated'))
+    cooling = (active and governor_stamp is not None and 0 <= now-float(governor_stamp) <= 5
+               and miner.get('governor_state') == 'cooling' and number(miner.get('duty_percent')) == 0)
+
 
     if "security" in data:
         state, title, detail = "warning", "Inicio suspendido: bloqueo de antivirus", "Hay un bloqueo de seguridad pendiente para el motor actual. Conserva la cuarentena y revisa el Historial de protección."
@@ -51,6 +55,8 @@ def view(data):
         state, title, detail = "warning", "Estado del minero sin verificar", "El supervisor dejó de actualizar. Comprueba miner-status; un registro antiguo no confirma actividad."
     elif not miner.get("running"):
         state, title, detail = "idle", "Minero detenido", "El supervisor informa que XMRig está detenido."
+    elif cooling and address_matches:
+        state, title, detail = "waiting", "Minería pausada · enfriando", "No se envía trabajo a la GPU. Reanuda automáticamente cuando GPU, hotspot y memoria disponible estén a 60 °C o menos. Ctrl+C en la sesión de minería detiene todo."
     elif miner.get("trial") is True and address_matches:
         state, title, detail = "waiting", "Prueba de XMRig en curso", "Prueba de cinco minutos con un worker temporal. El arranque permanente espera confirmación del pool."
     elif not address_matches or miner.get("worker") != config.get("worker"):

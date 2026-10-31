@@ -16,7 +16,7 @@ class ProbeTests(unittest.TestCase):
         self.config = dict(address='R'+'A'*33, worker='test', pool='stratum.ravenminer.com:13838')
         self.build = dict(engine='XMRig', commit=COMMIT, security_policy=POLICY, sha256='a'*64)
         self.probe = dict(mining_profile=MINING_PROFILE, engine='XMRig', security_policy=POLICY, sha256='a'*64, gpu_id=2, **self.config,
-                          completed=True, started=1000, ended=1300, error=None,
+                          completed=True, started=1000, ended=1300, active_seconds=300, cooling_seconds=0, error=None,
                           probe_worker='probe-'+'b'*20)
         self.pool = {'workers': {'list': [{'name': self.probe['probe_worker'], 'lastShareTime':1250}]}}
 
@@ -46,6 +46,21 @@ class ProbeTests(unittest.TestCase):
                            ('pool','other'),('started',1200),('ended',900)):
             with self.subTest(key=key):
                 self.probe = {**original,key:value}
+                with self.assertRaises(ValidationError): self.validate()
+
+    def test_long_cooling_wait_does_not_consume_trial(self):
+        self.probe.update(ended=4900, active_seconds=300, cooling_seconds=3600)
+        result = validate_probe(self.config, self.probe, self.build, 2, self.pool, 4920)
+        self.assertTrue(result['verified'])
+
+    def test_pause_only_missing_or_nonfinite_timing_cannot_validate(self):
+        original = self.probe.copy()
+        for changes in ({'active_seconds':0, 'cooling_seconds':300},
+                        {'active_seconds':None}, {'active_seconds':True},
+                        {'active_seconds':float('nan')}, {'ended':float('inf')},
+                        {'cooling_seconds':-1}, {'cooling_seconds':300}):
+            with self.subTest(changes=changes):
+                self.probe = {**original, **changes}
                 with self.assertRaises(ValidationError): self.validate()
 
     def test_only_success_writes_validation_and_no_dashboard_cache_is_used(self):

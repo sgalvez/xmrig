@@ -28,8 +28,8 @@ function Invoke-DefenderScan([string]$Directory) {
 }
 $base=Join-Path ([IO.Path]::GetTempPath()) ('xmrig-review-test-'+[guid]::NewGuid())
 $Utf8=New-Object Text.UTF8Encoding($false)
-$Engine='XMRig'; $Version='6.26.0'; $SecurityPolicy='rvn-governor-1'
-$SourceCommit='a99b12b93969a9f658bc774718a723ffd4c88766'
+$Engine='XMRig'; $Version='6.26.0'; $SecurityPolicy='rvn-governor-2'
+$SourceCommit='e04811e6121020302ab58f71909137dced3ac33b'
 try {
     $scenarios = @('eight-success','eight-error','eight-missing-error','eight-executed','eight-missing-executed',
         'eight-allowed-execution','eight-missing-date','eight-reversed-dates','eight-current-build',

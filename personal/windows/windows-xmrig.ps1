@@ -6,7 +6,8 @@ param(
     [ValidateSet('Install','Scan','Devices','Probe','Start','Run','Stop','Status','Review','Diagnostics','AcceptPua')][string]$Action,
     [ValidateRange(0,31)][int]$GpuId = 0,
     [string]$RuntimeRoot = '',
-    [string]$ExpectedSha256 = ''
+    [string]$ExpectedSha256 = '',
+    [ValidatePattern('^[a-f0-9]{32}$')][string]$SessionId = ''
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -20,15 +21,16 @@ if ([string]::IsNullOrWhiteSpace($RuntimeRoot)) {
 $Runtime = [IO.Path]::GetFullPath($RuntimeRoot)
 $StateFile = Join-Path $Runtime 'status.json'
 $StopFile = Join-Path $Runtime 'stop.request'
+$CancelFile = if ($SessionId) { Join-Path $Runtime ('cancel-' + $SessionId + '.request') } else { $null }
 $Version = '6.26.0'
 $TrialSeconds = 0
 if ($Action -eq 'Probe') { $TrialSeconds = 300; $Action = 'Run' }
 $Engine = 'XMRig'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $ExeHash = ''
-$SourceCommit = 'a99b12b93969a9f658bc774718a723ffd4c88766'
-$SecurityPolicy = 'rvn-governor-1'
-$MiningProfile = 'rx9070xt-duty25-intensity65536-v1'
+$SourceCommit = 'e04811e6121020302ab58f71909137dced3ac33b'
+$SecurityPolicy = 'rvn-governor-2'
+$MiningProfile = 'rx9070xt-duty25-halt80-resume60-v2'
 $ProjectRoot = Split-Path -Parent $PSCommandPath
 $BuildRoot = Join-Path $ProjectRoot '.artifacts\windows'
 $TrustFile = Join-Path $ProjectRoot '.trust\windows-build.json'
@@ -540,11 +542,21 @@ function Read-Governor([string]$Log, [int]$Device) {
     }
     return $latest
 }
-function Assert-GpuTemperature($Health) {
-    if ($Health -and ($Health.edge_c -ge 75 -or $Health.hotspot_c -ge 80 -or $Health.memory_c -ge 80)) {
-        if ($Health.line) { Write-Host ("Lectura que activa el corte: " + $Health.line) }
-        throw "Corte termico: GPU=$($Health.edge_c), hotspot=$($Health.hotspot_c), memoria=$($Health.memory_c) C. Limites locales 75/80/80 C."
-    }
+# Thermal pauses belong to the native governor. This independent watchdog
+# faults only if it fails to stop submissions, not when it is cooling normally.
+function Assert-GpuTemperature($Health, $Governor, [double]$Now, $HotSince) {
+    if (-not $Health -or ($Health.edge_c -lt 80 -and $Health.hotspot_c -lt 80 -and $Health.memory_c -lt 80)) { return $null }
+    if ($Governor -and $Governor.state -eq 'cooling' -and $Governor.duty_percent -eq 0) { return $null }
+    if ($null -eq $HotSince) { return $Now }
+    if (($Now - $HotSince) -ge 3) { throw 'El control GPU no confirma la pausa termica a 80 C. Minero detenido.' }
+    return $HotSince
+}
+function Update-TrialClock($Clock, [double]$Now, [bool]$Cooling) {
+    $elapsed = [Math]::Max(0, $Now - $Clock.last)
+    if ($Clock.cooling) { $Clock.cooling_seconds += $elapsed }
+    else { $Clock.active_seconds += $elapsed }
+    $Clock.last = $Now
+    $Clock.cooling = $Cooling
 }
 function Read-MinerStats([string]$Log) {
     $stats = @{}
@@ -713,12 +725,17 @@ try {
                 $sharesLine = ''
                 $lastProgress = $started - 5
                 $trialCompleted = $false
+                $watch = [Diagnostics.Stopwatch]::StartNew()
+                $trialClock = @{last=0.0; active_seconds=0.0; cooling_seconds=0.0; cooling=$false}
+                $hotSince = $null
+                Write-Host 'Pausa automatica a 80 C; reanuda cuando GPU, hotspot y memoria disponible bajen a 60 C. Ctrl+C detiene la sesion.'
                 # No API listener. Telemetry is read from the local log and public pool API.
+                if ($CancelFile -and (Test-Path -LiteralPath $CancelFile)) { return }
                 $miner = Start-Process -FilePath $Exe -ArgumentList (($argv | ForEach-Object { Quote-Arg $_ }) -join ' ') -WorkingDirectory (Split-Path $Exe) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $Runtime 'stdout.log') -RedirectStandardError (Join-Path $Runtime 'stderr.log')
                 $state = @{ engine=$Engine; version=$Version; running=$true; miner_pid=$miner.Id; runner_pid=$PID; gpu_id=$GpuId;
                     start_ticks=$miner.StartTime.ToUniversalTime().Ticks.ToString();
                     address=$config.address; worker=$worker; started=$started; trial=($TrialSeconds -gt 0); updated=0; error=$null }
-                while (-not $miner.HasExited -and -not (Test-Path -LiteralPath $StopFile)) {
+                while (-not $miner.HasExited -and -not (Test-Path -LiteralPath $StopFile) -and -not ($CancelFile -and (Test-Path -LiteralPath $CancelFile))) {
                     $state.updated = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
                     $health = Read-Temperature $log $GpuId
                     if ($health -and $health.line -ne $healthLine -and $health.temperature -gt 0) {
@@ -728,7 +745,6 @@ try {
                         foreach ($field in @('temperature','edge_c','hotspot_c','memory_c','sensor_source','pci','power_w','fan_rpm')) {
                             $state[$field] = $health[$field]
                         }
-                        Assert-GpuTemperature $health
                     }
                     $governor = Read-Governor $log $GpuId
                     if ($governor -and $governor.log_line -ne $governorLine) {
@@ -738,6 +754,10 @@ try {
                         $state.duty_percent = $governor.duty_percent
                         $state.governor_phase = $governor.phase
                     }
+                    $hotSince = Assert-GpuTemperature $health $governor $watch.Elapsed.TotalSeconds $hotSince
+                    Update-TrialClock $trialClock $watch.Elapsed.TotalSeconds ($state.governor_state -eq 'cooling')
+                    $state.active_seconds = $trialClock.active_seconds
+                    $state.cooling_seconds = $trialClock.cooling_seconds
                     $stats = Read-MinerStats $log
                     if ($stats.rate_line -and $stats.rate_line -ne $rateLine) {
                         $rateLine = $stats.rate_line
@@ -753,13 +773,15 @@ try {
                     Write-State $state
                     if ($state.governor_updated -and ($state.updated - $state.governor_updated) -gt 10) { throw 'Control GPU sin latido reciente. Minero detenido.' }
                     if (($state.updated - $healthSeen) -gt 30) { throw 'Sin lectura reciente de temperatura ADL. Se detiene la prueba/mineria; revisa el controlador AMD.' }
-                    if ($TrialSeconds -gt 0 -and ($state.updated - $started) -ge $TrialSeconds) {
+                    if ($TrialSeconds -gt 0 -and $trialClock.active_seconds -ge $TrialSeconds) {
                         $trialCompleted = $true
                         break
                     }
-                    if ($TrialSeconds -gt 0 -and ($state.updated - $lastProgress) -ge 5) {
+                    if (($state.updated - $lastProgress) -ge 5) {
                         $lastProgress = $state.updated
-                        Write-Host ("Prueba: {0}/{1} s. Hotspot: {2} C" -f ($state.updated - $started), $TrialSeconds, $(if ($health) { $health.temperature } else { 'sin lectura' }))
+                        $label = if ($state.governor_state -eq 'cooling') { 'ENFRIANDO: esperando <=60 C' } else { 'ACTIVO' }
+                        Write-Host ("{0} | GPU {1} C | hotspot {2} C | memoria {3} C | activos {4:N0} s | enfriando {5:N0} s | Ctrl+C: detener" -f $label, $state.edge_c, $state.hotspot_c, $state.memory_c, $trialClock.active_seconds, $trialClock.cooling_seconds)
+                        if ($TrialSeconds -gt 0) { Write-Host ("Prueba: {0:N0}/{1} segundos sin pausa termica." -f $trialClock.active_seconds, $TrialSeconds) }
                         if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 2 | Write-Host }
                     }
                     Start-Sleep -Seconds 1
@@ -778,6 +800,7 @@ try {
                     if ($TrialSeconds -gt 0 -and $config) {
                         $probe = @{engine=$Engine; sha256=$ExeHash; security_policy=$SecurityPolicy; mining_profile=$MiningProfile; gpu_id=$GpuId; address=$config.address;
                             worker=$config.worker; pool=$config.pool; probe_worker=$worker; started=$started;
+                            active_seconds=$state.active_seconds; cooling_seconds=$state.cooling_seconds;
                             ended=$state.updated; completed=($trialCompleted -eq $true); error=$state.error}
                         [IO.File]::WriteAllText((Join-Path $Runtime 'xmrig-probe.json'), ($probe | ConvertTo-Json), $Utf8)
                     }
@@ -785,7 +808,7 @@ try {
                 }
                 $runMutex.Dispose()
             }
-            if ($TrialSeconds -gt 0 -and $state.error) { throw $state.error }
+            if ($state.error) { throw $state.error }
         }
         'Stop' {
             [System.IO.File]::WriteAllText($StopFile, 'stop', $Utf8)

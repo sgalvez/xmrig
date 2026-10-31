@@ -1,4 +1,5 @@
 """Validate a bounded GPU trial against the user's public pool worker."""
+import math
 import re
 import time
 from .storage import read_json, write_json
@@ -8,9 +9,9 @@ class ValidationError(ValueError):
     pass
 
 ENGINE = 'XMRig'
-COMMIT = 'a99b12b93969a9f658bc774718a723ffd4c88766'
-POLICY = 'rvn-governor-1'
-MINING_PROFILE = 'rx9070xt-duty25-intensity65536-v1'
+COMMIT = 'e04811e6121020302ab58f71909137dced3ac33b'
+POLICY = 'rvn-governor-2'
+MINING_PROFILE = 'rx9070xt-duty25-halt80-resume60-v2'
 
 
 def validate_probe(config, probe, build, gpu, pool, now):
@@ -23,8 +24,12 @@ def validate_probe(config, probe, build, gpu, pool, now):
     if any(probe.get(k) != v for k, v in expected.items()):
         raise ValidationError('La prueba corresponde a otra GPU, compilación o configuración.')
     start, end = probe.get('started'), probe.get('ended')
-    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or not (0 <= now-end <= 600 and 295 <= end-start <= 420):
-        raise ValidationError('La prueba es antigua o tiene una duración inesperada; repite mine-test.')
+    active, cooling = probe.get('active_seconds'), probe.get('cooling_seconds')
+    numbers = (start, end, active, cooling, now)
+    if (any(isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) for n in numbers)
+            or not (0 <= now-end <= 600 and 295 <= active <= 420 and cooling >= 0)
+            or abs((end-start) - (active+cooling)) > 5):
+        raise ValidationError('La prueba es antigua o no acredita cinco minutos sin pausa térmica; repite mine-test.')
     worker = probe.get('probe_worker', '')
     if not re.fullmatch(r'probe-[a-f0-9]{20}', worker):
         raise ValidationError('Worker temporal inválido.')

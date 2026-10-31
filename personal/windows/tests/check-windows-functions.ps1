@@ -44,15 +44,15 @@ $Exe = Join-Path $InstallRoot 'xmrig.exe'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $Utf8 = New-Object Text.UTF8Encoding($false)
 $Engine = 'XMRig'
-$SourceCommit = 'a99b12b93969a9f658bc774718a723ffd4c88766'
+$SourceCommit = 'e04811e6121020302ab58f71909137dced3ac33b'
 $GpuId = 2
 # Do not change SystemRoot: Windows cryptographic providers need the real DLLs.
 function Get-GpuLibraryPath([string]$Name) { return Join-Path (Join-Path $temp 'System32') $Name }
 [void][IO.Directory]::CreateDirectory((Join-Path $temp 'System32'))
 foreach ($name in @('OpenCL.dll','atiadlxx.dll')) { [IO.File]::WriteAllText((Join-Path (Join-Path $temp 'System32') $name), 'Fixture, never loaded.') }
 $Version = 'test'
-$SecurityPolicy = 'rvn-governor-1'
-$MiningProfile = 'rx9070xt-duty25-intensity65536-v1'
+$SecurityPolicy = 'rvn-governor-2'
+$MiningProfile = 'rx9070xt-duty25-halt80-resume60-v2'
 $BuildRoot = Join-Path $temp 'artifacts'
 $TrustFile = Join-Path $temp 'trusted-build.json'
 function Assert-StandardUser { } # Identity APIs require actual Windows; no elevation in fixtures.
@@ -155,16 +155,32 @@ try {
     Assert-Equal (Read-Temperature $log 2).power_w $null
     Assert-Equal (Read-Temperature $log 2).fan_rpm 1800
     Assert-Equal (Read-Temperature $log 0) $null
-    Assert-GpuTemperature @{hotspot_c=79;edge_c=55}
-    Assert-Throws { Assert-GpuTemperature @{hotspot_c=80} }
-    Assert-Throws { Assert-GpuTemperature @{edge_c=75} }
-    Assert-Throws { Assert-GpuTemperature @{memory_c=80} }
+    $cooling = @{state='cooling'; duty_percent=0}
+    $running = @{state='running'; duty_percent=5}
+    Assert-Equal (Assert-GpuTemperature @{edge_c=79;hotspot_c=79;memory_c=79} $running 10 $null) $null
+    foreach ($sensor in @('edge_c','hotspot_c','memory_c')) {
+        $hot = @{$sensor=80}
+        Assert-Equal (Assert-GpuTemperature $hot $cooling 300 10) $null
+        Assert-Equal (Assert-GpuTemperature $hot $running 10 $null) 10
+        Assert-Equal (Assert-GpuTemperature $hot $running 12 10) 10
+        Assert-Throws { Assert-GpuTemperature $hot $running 13 10 }
+        Assert-Throws { Assert-GpuTemperature $hot @{state='cooling';duty_percent=5} 13 10 }
+    }
+    $clock = @{last=0.0; active_seconds=0.0; cooling_seconds=0.0; cooling=$false}
+    Update-TrialClock $clock 50 $true
+    Update-TrialClock $clock 3650 $true
+    Assert-Equal $clock.active_seconds 50
+    Assert-Equal $clock.cooling_seconds 3600
+    Update-TrialClock $clock 3660 $false
+    Update-TrialClock $clock 3910 $false
+    Assert-Equal $clock.active_seconds 300
+    Assert-Equal $clock.cooling_seconds 3610
     Assert-Equal $settings.opencl.kawpow[0].'gpu-duty-percent' 25
     Assert-Equal $settings.opencl.kawpow[0].intensity 65536
-    'gpu-governor {"v":1,"gpu":2,"state":"cooling","phase":"dag","duty_percent":5}' | Set-Content $log
+    'gpu-governor {"v":1,"gpu":2,"state":"cooling","phase":"dag","duty_percent":0}' | Set-Content $log
     Assert-Equal (Read-Governor $log 2).state 'cooling'
     Assert-Equal (Read-Governor $log 1) $null
-    'gpu-governor {"v":1,"gpu":2,"state":"fault","reason":"temperature-cutoff"}' | Add-Content $log
+    'gpu-governor {"v":1,"gpu":2,"state":"fault","reason":"sensor-missing-or-stale"}' | Add-Content $log
     Assert-Throws { Read-Governor $log 2 }
     @('[2026-10-30 01:00:00] miner speed 10s/60s/15m 35.25 34.00 n/a MH/s max 40.00 MH/s',
       '[2026-10-30 01:00:01] opencl accepted (15/0) diff 1M (12 ms)') | Set-Content $log

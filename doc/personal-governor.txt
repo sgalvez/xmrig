@@ -29,16 +29,23 @@ edge and hotspot: unsupported drivers, Linux's old sysfs reader and disabled
 ADL fail closed when duty control is enabled. They retain upstream behavior
 when it is disabled. Memory is optional until observed; losing it then faults.
 
-Fixed conservative local limits (C), not AMD's manufacturer ratings:
-               reduce duty    pause    resume    latched cutoff
-  GPU edge          60          70       55             75
-  hotspot           65          75       60             80
-  memory            65          75       60             80
+Local user-selected limits (C), not AMD manufacturer ratings:
+               reduce duty    pause >=    resume <=
+  GPU edge          60          80          60
+  hotspot           65          80          60
+  memory            65          80          60
+Any available sensor at 80 pauses submissions. All available sensors must
+reach 60 or below to resume, starting at 5% duty. Cooling never expires.
 Reduction: 5 percentage points per second, minimum 5%. Recovery: 1 point
-per 5 seconds up to the configured ceiling. Cooling requires all available
-sensors below resume thresholds and at least 5 seconds paused. Missing,
-implausible or stale (>2 s) samples and cutoff latch a fault until process
-restart. gpu-governor JSON records state, reason, phase and effective duty.
+per 5 seconds up to the configured ceiling. Missing, implausible or stale
+(>2 s) samples latch a fault until process restart. Thermal pauses do not.
+gpu-governor JSON records state, sensor reason, phase, exact sample and
+actual duty (zero while cooling). After waiting, discard stale search jobs.
+
+The foreground supervisor counts 300 non-cooling seconds for its trial.
+Ctrl+C writes a unique cancellation marker, which is checked both before
+launching and while supervising the owned miner. A thermal pause is shown
+in the status panel and does not close the application.
 
 The native controller cannot interrupt a hung driver call or a kernel already
 in flight. Keep the independent process supervisor and hardware thermal
