@@ -10,9 +10,9 @@ included. The terminal is read-only and never starts mining.
 Tests: python3 -m unittest discover -s personal/lab/tests
 
 Native governor details: doc/personal-governor.txt.
-The local lab builds the upstream pinned archive plus verified patches from
-personal-build, reproducing the fork engine sources identified in sources.json.
-The patches preserve the reviewed TLS and donation changes.
+The local lab downloads the fork archive directly, pinned by engine commit
+and SHA-256 in personal-build/sources.json. Idempotent source checks preserve
+the reviewed TLS, donation and governor changes.
 
 On the existing machine, after updating the local lab files:
   cd ~/zerocool/xmrig-personal-lab

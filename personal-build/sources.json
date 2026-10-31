@@ -4,8 +4,8 @@
     {
       "name": "xmrig",
       "version": "6.26.0",
-      "url": "https://codeload.github.com/xmrig/xmrig/tar.gz/b2ca72480c58d197e18c885d9fc1a0c8d517e60a",
-      "sha256": "f8bfbd3ed3e371f51bb40e9df1b236338e5aadfa42c5bccffd59132dac7ce0a9"
+      "url": "https://codeload.github.com/sgalvez/xmrig/tar.gz/a99b12b93969a9f658bc774718a723ffd4c88766",
+      "sha256": "5e3c450662d46d11336e04d2a4f332399b98c5c0f8b798e4684acdbcf0827567"
     },
     {
       "name": "libuv",
@@ -22,5 +22,5 @@
   ],
   "upstream_commit": "b2ca72480c58d197e18c885d9fc1a0c8d517e60a",
   "fork_repository": "https://github.com/sgalvez/xmrig",
-  "source_method": "SHA-256 pinned upstream archive plus hash-verified patches reproducing fork engine sources"
+  "source_method": "Direct fork archive pinned by commit and SHA-256; engine files checked against reviewed source hashes"
 }
