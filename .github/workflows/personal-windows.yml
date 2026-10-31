@@ -1,0 +1,22 @@
+name: Personal Windows supervisor tests
+on:
+  push:
+    branches: ['personal/rvn-gpu-governor']
+    paths: ['personal/windows/**', '.github/workflows/personal-windows.yml']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-supervisor-tests:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Test supervisor with mocked Defender and processes (no mining)
+        shell: powershell
+        run: |
+          Get-ChildItem personal/windows/tests/check-*.ps1 | ForEach-Object {
+            & powershell.exe -NoProfile -NonInteractive -File $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Failed: $($_.Name)" }
+          }

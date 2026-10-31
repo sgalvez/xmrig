@@ -353,9 +353,12 @@ function Assert-InstallDirectory {
         }
     }
 }
+function Get-GpuLibraryPath([string]$Name) {
+    return Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::System)) $Name
+}
 function Assert-GpuLibraries {
     foreach ($name in @('OpenCL.dll', 'atiadlxx.dll')) {
-        $path = Join-Path (Join-Path $env:SystemRoot 'System32') $name
+        $path = Get-GpuLibraryPath $name
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Falta la biblioteca de sistema $name. Revisa el controlador AMD; no copies DLL a la carpeta del minero."
         }
@@ -433,7 +436,7 @@ function Miner-Config($Config, [int]$Device, [string]$Worker, [string]$Log) {
         'print-time'=10; 'health-print-time'=2; dmi=$false;
         cpu=@{enabled=$false; 'huge-pages'=$false}; cuda=@{enabled=$false};
         http=@{enabled=$false}; randomx=@{rdmsr=$false; wrmsr=$false};
-        opencl=@{enabled=$true; platform='AMD'; loader=(Join-Path $env:SystemRoot 'System32\OpenCL.dll'); cache=$true; adl=$true;
+        opencl=@{enabled=$true; platform='AMD'; loader=(Get-GpuLibraryPath 'OpenCL.dll'); cache=$true; adl=$true;
             kawpow=@(@{index=$Device; intensity=65536; worksize=128; threads=@(-1); 'gpu-duty-percent'=25})};
         pools=@(@{algo='kawpow'; coin='ravencoin'; url=$Config.pool; user="$($Config.address).$Worker";
             pass='x'; tls=$true; sni=$true; enabled=$true; keepalive=$false; nicehash=$false});

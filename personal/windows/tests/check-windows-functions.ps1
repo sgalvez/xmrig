@@ -46,7 +46,8 @@ $Utf8 = New-Object Text.UTF8Encoding($false)
 $Engine = 'XMRig'
 $SourceCommit = 'a99b12b93969a9f658bc774718a723ffd4c88766'
 $GpuId = 2
-$env:SystemRoot = $temp
+# Do not change SystemRoot: Windows cryptographic providers need the real DLLs.
+function Get-GpuLibraryPath([string]$Name) { return Join-Path (Join-Path $temp 'System32') $Name }
 [void][IO.Directory]::CreateDirectory((Join-Path $temp 'System32'))
 foreach ($name in @('OpenCL.dll','atiadlxx.dll')) { [IO.File]::WriteAllText((Join-Path (Join-Path $temp 'System32') $name), 'Fixture, never loaded.') }
 $Version = 'test'
