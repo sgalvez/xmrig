@@ -1,7 +1,7 @@
 # Prepare a clean Windows evaluation VM. This script NEVER stages or runs a miner.
 [CmdletBinding()]
 param(
-    [ValidateSet('prepare', 'status', 'screenshot', 'start', 'stop')]
+    [ValidateSet('prepare', 'status', 'screenshot', 'start', 'stop', 'setup-control', 'guest-status')]
     [string]$Action = 'prepare',
     [ValidateRange(1, 20)][int]$ImageIndex = 1
 )
@@ -75,6 +75,105 @@ function Export-Status {
     $summary | ConvertTo-Json | Write-Host
     return $info
 }
+function Stop-GuestForSnapshot {
+    $info = Get-ManagedInfo
+    Assert-Isolated $info
+    if ($info['VMState'] -eq 'poweroff') { return }
+    if ($info['VMState'] -ne 'running') { throw 'La VM debe estar encendida o apagada, no pausada ni guardada.' }
+    Invoke-VBox @('controlvm', [string]$script:State.uuid, 'acpipowerbutton')
+    $deadline = [DateTime]::UtcNow.AddSeconds(120)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Seconds 5
+        $info = Get-ManagedInfo
+        if ($info['VMState'] -eq 'poweroff') { return }
+        if ($info['VMState'] -ne 'running') { throw 'La VM cambio a un estado inesperado. No se fuerza su apagado.' }
+        Write-Host 'Esperando apagado ordenado de Windows...'
+    }
+    throw 'Windows no se apago en 120 segundos. Apagalo desde Inicio dentro de la VM y repite setup-control.'
+}
+function Initialize-GuestControl {
+    $additions = Join-Path (Split-Path -Parent $script:VBox) 'VBoxGuestAdditions.iso'
+    if (-not (Test-Path -LiteralPath $additions)) { throw 'No se encuentra la ISO de Guest Additions instalada con VirtualBox.' }
+    $baselinePath = Join-Path $script:Root 'clean-baseline.json'
+    $baseline = $null
+    if (Test-Path -LiteralPath $baselinePath) {
+        $baseline = Get-Content -LiteralPath $baselinePath -Raw | ConvertFrom-Json
+        $snapshotId = [guid]::Empty
+        if ($baseline.vm_uuid -ne $script:State.uuid -or
+            -not [guid]::TryParse([string]$baseline.snapshot_uuid, [ref]$snapshotId)) {
+            throw 'El registro de la instantanea no corresponde a esta VM.'
+        }
+        $snapshots = (Invoke-VBox @('snapshot', [string]$script:State.uuid, 'list', '--machinereadable') | Out-String)
+        if ($snapshots -notmatch [regex]::Escape([string]$baseline.snapshot_uuid)) { throw 'No se encuentra la instantanea registrada. No se sustituye por otra.' }
+    }
+    Stop-GuestForSnapshot
+    if ($null -eq $baseline) {
+        $name = 'windows-clean-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+        Invoke-VBox @('snapshot', [string]$script:State.uuid, 'take', $name, '--description',
+            'Windows desktop confirmed by owner; offline baseline before Guest Additions and miner audit.')
+        $snapInfo = Get-ManagedInfo
+        $snapshotId = [guid]::Empty
+        if (-not [guid]::TryParse([string]$snapInfo['CurrentSnapshotUUID'], [ref]$snapshotId)) {
+            throw 'Instantanea solicitada, pero no se pudo verificar su UUID. No se cambia el medio de instalacion.'
+        }
+        $baseline = [ordered]@{ vm_uuid=$script:State.uuid; snapshot_uuid=$snapshotId.ToString(); name=$name
+            created_utc=[DateTime]::UtcNow.ToString('o'); desktop_confirmed_by='user'; miner_staged=$false }
+        $baseline | ConvertTo-Json | Set-Content -LiteralPath $baselinePath -Encoding UTF8
+    }
+    $offInfo = Get-ManagedInfo
+    Assert-Isolated $offInfo
+    if ($offInfo['VMState'] -ne 'poweroff') { throw 'La VM ya no esta apagada. No se cambia el DVD.' }
+    # Replace the existing unattended DVD only after preserving it in the baseline.
+    Invoke-VBox @('storageattach', [string]$script:State.uuid, '--storagectl', 'SATA', '--port', '1', '--device', '0',
+        '--type', 'dvddrive', '--medium', $additions)
+    Invoke-VBox @('modifyvm', [string]$script:State.uuid, '--boot1', 'disk', '--boot2', 'dvd')
+    $verified = Get-ManagedInfo
+    Assert-Isolated $verified
+    New-Item -ItemType Directory -Path $script:Evidence -Force | Out-Null
+    $baseline | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:Evidence 'clean-baseline.json') -Encoding UTF8
+    Invoke-VBox @('startvm', [string]$script:State.uuid, '--type', 'headless')
+    Write-Host "Instantanea conservada: $($baseline.name)"
+    Write-Host 'Guest Additions montadas en el DVD de la VM. Dentro del invitado, abre VBoxWindowsAdditions.exe como administrador y reinicia el invitado.'
+    Write-Host 'Despues ejecuta -Action guest-status para comprobar el canal y los privilegios efectivos. No se inicio el minero.'
+}
+function Get-GuestStatusCommand {
+    # A fixed read-only probe, not a user-supplied command or remote shell.
+    $code = @'
+$ErrorActionPreference = 'Stop'
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+$os = Get-CimInstance Win32_OperatingSystem
+$service = Get-Service VBoxService -ErrorAction Stop
+$adapters = @(Get-NetAdapter -ErrorAction Stop | Where-Object Status -eq 'Up')
+$routes = @(Get-NetRoute -ErrorAction Stop | Where-Object DestinationPrefix -in @('0.0.0.0/0','::/0'))
+[ordered]@{
+    user=$identity.Name
+    administrator=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    windows=$os.Caption; build=$os.BuildNumber; guest_service=[string]$service.Status
+    active_network_adapters=$adapters.Count; default_routes=$routes.Count
+    checked_utc=[DateTime]::UtcNow.ToString('o'); miner_executed=$false
+} | ConvertTo-Json -Compress
+'@
+    return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
+}
+function Export-GuestStatus {
+    $info = Get-ManagedInfo
+    Assert-Isolated $info
+    if ($info['VMState'] -ne 'running') { throw 'La VM debe estar encendida y Guest Additions instaladas.' }
+    $passwordFile = Join-Path $script:Root 'guest-password.txt'
+    if (-not (Test-Path -LiteralPath $passwordFile)) { throw 'No se encuentra la clave temporal de audituser.' }
+    $encoded = Get-GuestStatusCommand
+    $output = @(Invoke-VBox @('guestcontrol', [string]$script:State.uuid, 'run', '--exe',
+        'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe', '--username', 'audituser',
+        '--passwordfile', $passwordFile, '--timeout', '60000', '--wait-stdout', '--wait-stderr', '--',
+        '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded))
+    $report = ($output -join "`n") | ConvertFrom-Json
+    New-Item -ItemType Directory -Path $script:Evidence -Force | Out-Null
+    $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:Evidence 'guest-status.json') -Encoding UTF8
+    $report | ConvertTo-Json | Write-Host
+    if (-not $report.administrator) { Write-Warning 'El canal responde sin elevacion efectiva. No se puede iniciar aun el observador administrativo.' }
+    if ($report.active_network_adapters -ne 0 -or $report.default_routes -ne 0) { throw 'El invitado informa red activa; no continuar con la auditoria.' }
+}
 
 if (-not (Test-Path -LiteralPath $VBox)) { throw 'No se encuentra VBoxManage.exe en Program Files.' }
 $version = (Invoke-VBox @('--version') | Out-String).Trim()
@@ -84,6 +183,8 @@ if ($Action -ne 'prepare') {
     $script:State = Read-ManagedState
     $info = Get-ManagedInfo
     switch ($Action) {
+        'setup-control' { Initialize-GuestControl }
+        'guest-status' { Export-GuestStatus }
         'status' { $null = Export-Status }
         'screenshot' {
             if ($info['VMState'] -ne 'running') { throw 'La VM no esta encendida; no hay pantalla que capturar.' }

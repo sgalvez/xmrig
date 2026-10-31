@@ -33,12 +33,34 @@ Capturas y estado se guardan en .runtime/vbox-audit dentro del proyecto; el asis
 puede leerlos. No contienen las credenciales. Tras apagar, -Action start reinicia la
 VM solo si la preparacion termino y las comprobaciones de aislamiento pasan.
 
+DESPUES DE VER EL ESCRITORIO DE WINDOWS
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Proyecto\audit-isolated\vbox-windows.ps1" -Action setup-control
+
+Solicita apagado ACPI y espera hasta 120 s. Nunca fuerza apagado ni reinicia en
+caliente. Si Windows no responde, apagarlo desde Inicio y repetir. Preserva una
+instantanea offline antes de sustituir el DVD de instalacion por Guest Additions.
+La instantanea se registra por UUID y se conserva al repetir setup-control.
+Despues arranca headless con el disco primero. No instala aun las Guest Additions.
+
+Dentro de la VM, abrir el DVD de VirtualBox Guest Additions, ejecutar
+VBoxWindowsAdditions.exe como administrador, completar instalacion y reiniciar
+el invitado. Esto instala el canal VBoxService, no habilita red ni carpetas
+compartidas. El instalador se ejecuta en el invitado, nunca en el anfitrion.
+
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Proyecto\audit-isolated\vbox-windows.ps1" -Action guest-status
+
+Usa guestcontrol y la clave temporal ya existente sin imprimirla. Ejecuta solo
+una consulta fija sobre identidad, privilegio administrativo efectivo, servicio,
+version de Windows y presencia de red. Guarda .runtime/vbox-audit/guest-status.json.
+Si administrator=false, el canal existe pero no acredita elevacion. No se cambia
+UAC ni Defender. No se inicia ninguna muestra mediante estas acciones.
+
 LIMITES
 Este script prepara el Windows invitado; NO implementa todavia la captura Procmon
 para VirtualBox. run-inside.ps1 sigue restringido a Windows Sandbox. No cambiar
 su comprobacion de usuario para ejecutarlo en el host o forzarlo en esta VM.
-Despues de comprobar la instalacion limpia, se preparara un snapshot y un medio
-de entrada de auditoria, con validacion de hash y un observador especifico para VM.
+Despues de comprobar Guest Additions y privilegios, falta preparar un medio de
+entrada de auditoria, con validacion de hash y un observador especifico para VM.
 La prueba offline no demuestra seguridad del minero con pool/GPU reales.
 
 Referencias:
