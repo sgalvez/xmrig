@@ -65,6 +65,32 @@ un servicio, tarea programada ni acceso administrativo permanente. Guarda
 Si no aparece el aviso UAC o vence el plazo, revisar la ventana antes de repetir.
 El progreso de carga de modulos se silencia para evitar CLIXML en la consola.
 
+PRUEBA DE CONTROL ADMINISTRATIVO
+guest-control-proof -ProofId <32 caracteres hexadecimales> solicita UAC dentro
+del invitado y realiza una operacion reversible: crear una clave HKLM con nombre
+unico, escribir el identificador, leerlo y eliminar la clave en finally. Rechaza
+claves preexistentes y solo opera si el proceso esta elevado y la VM sin red.
+Guarda control-proof-<id>.json con la identidad y los resultados de lectura y
+limpieza. La prueba acredita esa operacion; no representa acceso permanente ni
+certifica inocuidad del minero. No modifica UAC, Defender ni claves ajenas.
+
+notify-telegram.py envia hitos y solicitudes al chat privado ya vinculado,
+usando la configuracion local sin imprimir el token. Registra los IDs de entrega
+en .runtime/vbox-audit/telegram-actions.jsonl. Su uso para reportar esta auditoria
+y solicitar acciones en el host fue autorizado expresamente por el usuario.
+
+PARADA DESDE TELEGRAM
+El bot local acepta /detener, /stop o "deten todo" (con o sin tilde), solo desde
+la cuenta privada vinculada. Guarda stop-request.json antes de responder. El
+script rechaza nuevas acciones de trabajo mientras exista esa solicitud.
+pause-work solicita controlvm pause solo con VMState=running y verifica el
+resultado. Estados ocupados, como livesnapshotting, se reportan pendientes y
+el bot reintenta; nunca usa poweroff. El bot permanece escuchando y conserva
+la parada tras reiniciar. No hay reanudacion automatica ni comandos libres.
+La senal tambien se consulta por el asistente antes de nuevas operaciones;
+no equivale a interrumpir de forma nativa el turno de chat ni operaciones
+del host ya iniciadas. No detener el bot si se necesita mantener este canal.
+
 LIMITES
 Este script prepara el Windows invitado; NO implementa todavia la captura Procmon
 para VirtualBox. run-inside.ps1 sigue restringido a Windows Sandbox. No cambiar

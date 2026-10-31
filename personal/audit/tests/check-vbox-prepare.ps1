@@ -7,7 +7,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [r
 if (@($errors).Count) { throw ($errors | Out-String) }
 # Load selected functions only. Never execute the launcher's top-level code.
 foreach ($name in @('Assert-Isolated', 'Get-ManagedInfo', 'Set-PrivateDirectoryAcl', 'Stop-GuestForSnapshot',
-                    'Initialize-GuestControl', 'Get-GuestStatusCommand', 'Get-GuestAdminStatusCommand', 'Export-GuestStatus')) {
+                    'Initialize-GuestControl', 'Get-GuestStatusCommand', 'Get-GuestControlProofCommand', 'Get-GuestAdminStatusCommand', 'Export-GuestStatus', 'Assert-WorkAllowed', 'Suspend-AuditWork')) {
     $node = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
     if (-not $node) { throw "Missing function: $name" }
     Invoke-Expression $node.Extent.Text
@@ -96,6 +96,35 @@ $null = [System.Management.Automation.Language.Parser]::ParseInput($innerProbe, 
 if (@($errors).Count) { throw ($errors | Out-String) }
 if (-not $innerProbe.Contains('$ProgressPreference = ''SilentlyContinue''')) { throw 'Guest module progress suppression missing.' }
 if (-not $adminProbe.Contains('-Verb RunAs')) { throw 'Explicit UAC elevation missing.' }
+$controlCode = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String((Get-GuestControlProofCommand ('a' * 32))))
+$null = [System.Management.Automation.Language.Parser]::ParseInput($controlCode, [ref]$tokens, [ref]$errors)
+if (@($errors).Count) { throw ($errors | Out-String) }
+Must-Throw { Get-GuestControlProofCommand "invalid';command" }
+
+# Execute the marker lifecycle against an in-memory registry, not the host registry.
+& {
+    function Get-GuestStatusCommand {
+        return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('''{"administrator":true,"active_network_adapters":0,"default_routes":0}'''))
+    }
+    $script:MockRegistry=@{}
+    $script:ProofOperations=New-Object 'System.Collections.Generic.List[string]'
+    function Test-Path { param($LiteralPath) return $script:MockRegistry.ContainsKey($LiteralPath) }
+    function New-Item { param($Path, $ErrorAction) $script:MockRegistry[$Path]=''; $script:ProofOperations.Add('create') }
+    function New-ItemProperty { param($LiteralPath,$Name,$Value,$PropertyType,$ErrorAction) $script:MockRegistry[$LiteralPath]=$Value; $script:ProofOperations.Add('write') }
+    function Get-ItemPropertyValue { param($LiteralPath,$Name) $script:ProofOperations.Add('read'); return $script:MockRegistry[$LiteralPath] }
+    function Remove-Item { param($LiteralPath,[switch]$Recurse,[switch]$Force,$ErrorAction) $script:MockRegistry.Remove($LiteralPath); $script:ProofOperations.Add('delete') }
+    $nonce='b' * 32
+    $code=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String((Get-GuestControlProofCommand $nonce)))
+    $receipt=Invoke-Expression $code | ConvertFrom-Json
+    if ($receipt.proof_id -ne $nonce -or -not $receipt.registry_marker_removed -or
+        ($script:ProofOperations -join ',') -ne 'create,write,read,delete' -or $script:MockRegistry.Count -ne 0) {
+        throw 'Administrative marker lifecycle failed.'
+    }
+    $script:MockRegistry['HKLM:\SOFTWARE\XmrigAuditControlProof-' + $nonce]='existing'
+    $script:ProofOperations.Clear()
+    Must-Throw { Invoke-Expression $code }
+    if ($script:ProofOperations.Count -ne 0 -or $script:MockRegistry.Count -ne 1) { throw 'Existing key was modified.' }
+}
 
 # Model VM state transitions. All VBox calls below are recorded, not executed.
 $script:Calls = New-Object 'System.Collections.Generic.List[object]'
@@ -162,4 +191,31 @@ try {
     Must-Throw { Initialize-GuestControl }
     if ($script:Calls.Count -ne 0) { throw 'Setup operated on a foreign baseline.' }
 } finally { Remove-Item -LiteralPath $vmTest -Recurse -Force }
-Write-Host 'Syntax, isolation, real ACLs, orderly shutdown and baseline sequencing passed. VM operations were simulated; no miner executed.'
+& {
+    $script:FakeVmState='running'
+    $script:PauseCalls=0
+    function Get-ManagedInfo { return @{VMState=$script:FakeVmState} }
+    function Invoke-VBox([string[]]$Arguments) {
+        if ($Arguments[0] -ne 'controlvm' -or $Arguments[2] -ne 'pause') { throw 'Unexpected stop action' }
+        $script:PauseCalls++
+        $script:FakeVmState='paused'
+    }
+    $proof=Suspend-AuditWork | ConvertFrom-Json
+    if (-not $proof.confirmed -or $script:PauseCalls -ne 1) { throw 'Pause not verified.' }
+    $null=Suspend-AuditWork
+    if ($script:PauseCalls -ne 1) { throw 'Pause is not idempotent.' }
+    $script:FakeVmState='livesnapshotting'
+    $proof=Suspend-AuditWork | ConvertFrom-Json
+    if ($proof.confirmed -or $script:PauseCalls -ne 1) { throw 'Snapshot was interrupted or falsely confirmed.' }
+}
+$stopTest=Join-Path ([IO.Path]::GetTempPath()) ('xmrig-stop-test-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $stopTest | Out-Null
+try {
+    $script:Evidence=$stopTest
+    $script:Action='guest-control-proof'
+    Assert-WorkAllowed
+    [IO.File]::WriteAllText((Join-Path $stopTest 'stop-request.json'), '{}')
+    Must-Throw { Assert-WorkAllowed }
+    foreach ($script:Action in @('pause-work','stop','status','screenshot')) { Assert-WorkAllowed }
+} finally { Remove-Item -LiteralPath $stopTest -Recurse -Force }
+Write-Host 'Syntax, isolation, real ACLs, proof, stop latch and pause sequencing passed. VM operations were simulated; no miner executed.'

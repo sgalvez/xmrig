@@ -1,9 +1,10 @@
 # Prepare a clean Windows evaluation VM. This script NEVER stages or runs a miner.
 [CmdletBinding()]
 param(
-    [ValidateSet('prepare', 'status', 'screenshot', 'start', 'stop', 'setup-control', 'guest-status', 'guest-admin-status')]
+    [ValidateSet('prepare', 'status', 'screenshot', 'start', 'stop', 'setup-control', 'guest-status', 'guest-admin-status', 'guest-control-proof', 'pause-work')]
     [string]$Action = 'prepare',
-    [ValidateRange(1, 20)][int]$ImageIndex = 1
+    [ValidateRange(1, 20)][int]$ImageIndex = 1,
+    [ValidatePattern('^[a-f0-9]{32}$')][string]$ProofId
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -18,6 +19,7 @@ $Iso = Join-Path $Root 'Windows11-Enterprise-Eval-es-es-x64.iso'
 $VmName = 'Xmrig-Audit-Win11'
 
 function Invoke-VBox([string[]]$Arguments) {
+    Assert-WorkAllowed
     & $script:VBox @Arguments
     if ($LASTEXITCODE -ne 0) { throw "VBoxManage fallo ($LASTEXITCODE): $($Arguments[0]). Se conserva el estado para diagnostico." }
 }
@@ -62,6 +64,23 @@ function Assert-Isolated($Info) {
     foreach ($key in $Info.Keys) {
         if ($key -like 'SharedFolder*') { throw 'Hay carpetas compartidas; no se inicia la VM.' }
     }
+}
+function Assert-WorkAllowed {
+    if ($script:Action -in @('pause-work', 'stop', 'status', 'screenshot')) { return }
+    if (Test-Path -LiteralPath (Join-Path $script:Evidence 'stop-request.json')) {
+        throw 'Trabajo detenido por Telegram. No se inicia ninguna accion; espera reanudacion explicita del usuario.'
+    }
+}
+function Suspend-AuditWork {
+    $info = Get-ManagedInfo
+    if ($info['VMState'] -eq 'running') {
+        Invoke-VBox @('controlvm', [string]$script:State.uuid, 'pause')
+        $info = Get-ManagedInfo
+    }
+    # Busy states such as livesnapshotting are retried by the bot. No poweroff/kill.
+    [ordered]@{ name=$script:State.name; uuid=$script:State.uuid; state=$info['VMState']
+        confirmed=($info['VMState'] -in @('paused', 'poweroff', 'saved'))
+        checked_utc=[DateTime]::UtcNow.ToString('o') } | ConvertTo-Json -Compress | Write-Output
 }
 function Export-Status {
     $info = Get-ManagedInfo
@@ -157,8 +176,44 @@ $routes = @(Get-NetRoute -ErrorAction Stop | Where-Object DestinationPrefix -in 
 '@
     return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
 }
-function Get-GuestAdminStatusCommand {
-    # The guest requests normal UAC consent for this one read-only diagnostic.
+function Get-GuestControlProofCommand([string]$Nonce) {
+    if ($Nonce -notmatch '^[a-f0-9]{32}$') { throw 'Identificador de prueba invalido.' }
+    $probe = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String((Get-GuestStatusCommand)))
+    $code = @'
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$report = & {
+__STATUS_PROBE__
+} | ConvertFrom-Json
+if (-not $report.administrator) { throw 'La prueba requiere un proceso elevado.' }
+if ($report.active_network_adapters -ne 0 -or $report.default_routes -ne 0) { throw 'La VM informa red activa; no se modifica el registro.' }
+$nonce = '__NONCE__'
+$key = 'HKLM:\SOFTWARE\XmrigAuditControlProof-' + $nonce
+if (Test-Path -LiteralPath $key) { throw 'Ya existe la marca de prueba; no se sobrescribe.' }
+$created = $false
+$verified = $false
+try {
+    New-Item -Path $key -ErrorAction Stop | Out-Null
+    $created = $true
+    New-ItemProperty -LiteralPath $key -Name 'ProofNonce' -Value $nonce -PropertyType String -ErrorAction Stop | Out-Null
+    $verified = (Get-ItemPropertyValue -LiteralPath $key -Name 'ProofNonce') -eq $nonce
+    if (-not $verified) { throw 'La marca administrativa no coincide.' }
+} finally {
+    if ($created) { Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction Stop }
+}
+$removed = -not (Test-Path -LiteralPath $key)
+if (-not $removed) { throw 'No se pudo retirar la marca temporal.' }
+$report | Add-Member -NotePropertyName proof_id -NotePropertyValue $nonce
+$report | Add-Member -NotePropertyName action -NotePropertyValue 'create-read-delete-temporary-HKLM-marker'
+$report | Add-Member -NotePropertyName registry_value_verified -NotePropertyValue $verified
+$report | Add-Member -NotePropertyName registry_marker_removed -NotePropertyValue $removed
+$report | ConvertTo-Json -Compress
+'@
+    $code = $code.Replace('__STATUS_PROBE__', $probe).Replace('__NONCE__', $Nonce)
+    return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
+}
+function Get-GuestAdminStatusCommand([string]$ControlProofId) {
+    # The guest requests normal UAC consent for this one diagnostic or marker proof.
     # No service, scheduled task, UAC policy or permanent elevated channel is installed.
     $code = @'
 $ErrorActionPreference = 'Stop'
@@ -183,10 +238,12 @@ try {
     if (Test-Path -LiteralPath $resultFile) { Remove-Item -LiteralPath $resultFile -Force }
 }
 '@
-    $code = $code.Replace('__PROBE__', (Get-GuestStatusCommand))
+    $inner = Get-GuestStatusCommand
+    if ($ControlProofId) { $inner = Get-GuestControlProofCommand $ControlProofId }
+    $code = $code.Replace('__PROBE__', $inner)
     return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
 }
-function Export-GuestStatus([switch]$Elevated) {
+function Export-GuestStatus([switch]$Elevated, [string]$ControlProofId) {
     $info = Get-ManagedInfo
     Assert-Isolated $info
     if ($info['VMState'] -ne 'running') { throw 'La VM debe estar encendida y Guest Additions instaladas.' }
@@ -196,16 +253,23 @@ function Export-GuestStatus([switch]$Elevated) {
     $timeout = '60000'
     $filename = 'guest-status.json'
     if ($Elevated) {
-        $encoded = Get-GuestAdminStatusCommand
+        $encoded = Get-GuestAdminStatusCommand $ControlProofId
         $timeout = '180000'
         $filename = 'guest-admin-status.json'
-        Write-Host 'Abre la ventana de la VM y acepta el aviso UAC de PowerShell. Solo se solicita una consulta elevada de estado.'
+        if ($ControlProofId) {
+            $filename = 'control-proof-' + $ControlProofId + '.json'
+            Write-Host 'Acepta UAC dentro de la VM: se creara, leera y eliminara una marca temporal HKLM para probar control administrativo.'
+        } else {
+            Write-Host 'Abre la ventana de la VM y acepta el aviso UAC de PowerShell. Solo se solicita una consulta elevada de estado.'
+        }
     }
     $output = @(Invoke-VBox @('guestcontrol', [string]$script:State.uuid, 'run', '--exe',
         'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe', '--username', 'audituser',
         '--passwordfile', $passwordFile, '--timeout', $timeout, '--wait-stdout', '--wait-stderr', '--',
         '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded))
     $report = ($output -join "`n") | ConvertFrom-Json
+    if ($ControlProofId -and ($report.proof_id -ne $ControlProofId -or -not $report.administrator -or
+        -not $report.registry_value_verified -or -not $report.registry_marker_removed)) { throw 'Resultado de control administrativo incompleto o de otra prueba.' }
     New-Item -ItemType Directory -Path $script:Evidence -Force | Out-Null
     $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:Evidence $filename) -Encoding UTF8
     $report | ConvertTo-Json | Write-Host
@@ -213,6 +277,7 @@ function Export-GuestStatus([switch]$Elevated) {
     if ($report.active_network_adapters -ne 0 -or $report.default_routes -ne 0) { throw 'El invitado informa red activa; no continuar con la auditoria.' }
 }
 
+Assert-WorkAllowed
 if (-not (Test-Path -LiteralPath $VBox)) { throw 'No se encuentra VBoxManage.exe en Program Files.' }
 $version = (Invoke-VBox @('--version') | Out-String).Trim()
 if ($version -notmatch '^7\.2\.') { throw "Este preparador requiere VirtualBox 7.2; detectado: $version" }
@@ -221,9 +286,14 @@ if ($Action -ne 'prepare') {
     $script:State = Read-ManagedState
     $info = Get-ManagedInfo
     switch ($Action) {
+        'pause-work' { Suspend-AuditWork }
         'setup-control' { Initialize-GuestControl }
         'guest-status' { Export-GuestStatus }
         'guest-admin-status' { Export-GuestStatus -Elevated }
+        'guest-control-proof' {
+            if (-not $ProofId) { throw 'Indica -ProofId con 32 caracteres hexadecimales para correlacionar la prueba.' }
+            Export-GuestStatus -Elevated -ControlProofId $ProofId
+        }
         'status' { $null = Export-Status }
         'screenshot' {
             if ($info['VMState'] -ne 'running') { throw 'La VM no esta encendida; no hay pantalla que capturar.' }
