@@ -7,7 +7,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [r
 if (@($errors).Count) { throw ($errors | Out-String) }
 # Load selected functions only. Never execute the launcher's top-level code.
 foreach ($name in @('Assert-Isolated', 'Get-ManagedInfo', 'Set-PrivateDirectoryAcl', 'Stop-GuestForSnapshot',
-                    'Initialize-GuestControl', 'Get-GuestStatusCommand', 'Export-GuestStatus')) {
+                    'Initialize-GuestControl', 'Get-GuestStatusCommand', 'Get-GuestAdminStatusCommand', 'Export-GuestStatus')) {
     $node = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
     if (-not $node) { throw "Missing function: $name" }
     Invoke-Expression $node.Extent.Text
@@ -78,6 +78,24 @@ try {
 $probe = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String((Get-GuestStatusCommand)))
 $null = [System.Management.Automation.Language.Parser]::ParseInput($probe, [ref]$tokens, [ref]$errors)
 if (@($errors).Count) { throw ($errors | Out-String) }
+
+# Parse all generated layers without elevating or executing guest diagnostics.
+$adminProbe = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String((Get-GuestAdminStatusCommand)))
+$adminAst = [System.Management.Automation.Language.Parser]::ParseInput($adminProbe, [ref]$tokens, [ref]$errors)
+if (@($errors).Count) { throw ($errors | Out-String) }
+$needed = @('probe', 'resultFile', 'quotedResult', 'elevatedCode', 'encoded')
+foreach ($statement in $adminAst.EndBlock.Statements) {
+    if ($statement -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $statement.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $needed -contains $statement.Left.VariablePath.UserPath) {
+        Invoke-Expression $statement.Extent.Text
+    }
+}
+$innerProbe = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+$null = [System.Management.Automation.Language.Parser]::ParseInput($innerProbe, [ref]$tokens, [ref]$errors)
+if (@($errors).Count) { throw ($errors | Out-String) }
+if (-not $innerProbe.Contains('$ProgressPreference = ''SilentlyContinue''')) { throw 'Guest module progress suppression missing.' }
+if (-not $adminProbe.Contains('-Verb RunAs')) { throw 'Explicit UAC elevation missing.' }
 
 # Model VM state transitions. All VBox calls below are recorded, not executed.
 $script:Calls = New-Object 'System.Collections.Generic.List[object]'

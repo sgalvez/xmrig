@@ -55,6 +55,16 @@ version de Windows y presencia de red. Guarda .runtime/vbox-audit/guest-status.j
 Si administrator=false, el canal existe pero no acredita elevacion. No se cambia
 UAC ni Defender. No se inicia ninguna muestra mediante estas acciones.
 
+Si el canal ordinario informa administrator=false, se puede comprobar un proceso
+elevado separado con el consentimiento UAC normal del invitado:
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Proyecto\audit-isolated\vbox-windows.ps1" -Action guest-admin-status
+Mantener abierta la ventana de la VM con audituser conectado y aceptar alli el
+aviso de PowerShell. Solo se ejecuta la consulta fija de estado; no se instala
+un servicio, tarea programada ni acceso administrativo permanente. Guarda
+.runtime/vbox-audit/guest-admin-status.json. El canal normal no cambia de privilegio.
+Si no aparece el aviso UAC o vence el plazo, revisar la ventana antes de repetir.
+El progreso de carga de modulos se silencia para evitar CLIXML en la consola.
+
 LIMITES
 Este script prepara el Windows invitado; NO implementa todavia la captura Procmon
 para VirtualBox. run-inside.ps1 sigue restringido a Windows Sandbox. No cambiar

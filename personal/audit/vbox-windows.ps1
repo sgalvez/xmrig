@@ -1,7 +1,7 @@
 # Prepare a clean Windows evaluation VM. This script NEVER stages or runs a miner.
 [CmdletBinding()]
 param(
-    [ValidateSet('prepare', 'status', 'screenshot', 'start', 'stop', 'setup-control', 'guest-status')]
+    [ValidateSet('prepare', 'status', 'screenshot', 'start', 'stop', 'setup-control', 'guest-status', 'guest-admin-status')]
     [string]$Action = 'prepare',
     [ValidateRange(1, 20)][int]$ImageIndex = 1
 )
@@ -140,6 +140,7 @@ function Get-GuestStatusCommand {
     # A fixed read-only probe, not a user-supplied command or remote shell.
     $code = @'
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 $os = Get-CimInstance Win32_OperatingSystem
@@ -156,20 +157,57 @@ $routes = @(Get-NetRoute -ErrorAction Stop | Where-Object DestinationPrefix -in 
 '@
     return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
 }
-function Export-GuestStatus {
+function Get-GuestAdminStatusCommand {
+    # The guest requests normal UAC consent for this one read-only diagnostic.
+    # No service, scheduled task, UAC policy or permanent elevated channel is installed.
+    $code = @'
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$probe = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('__PROBE__'))
+$resultFile = Join-Path $env:TEMP ('xmrig-admin-probe-' + [guid]::NewGuid().ToString('N') + '.json')
+$quotedResult = "'" + $resultFile.Replace("'", "''") + "'"
+$elevatedCode = '$ProgressPreference = "SilentlyContinue"' + "`n" +
+    '$result = & {' + "`n" + $probe + "`n}" + "`n" +
+    '$result | Set-Content -Encoding UTF8 -LiteralPath ' + $quotedResult
+$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedCode))
+try {
+    $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -PassThru `
+        -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
+    if (-not $child.WaitForExit(120000)) { throw 'La consulta elevada no termino. Revisa la ventana del invitado antes de repetir.' }
+    if (-not (Test-Path -LiteralPath $resultFile)) { throw 'No hay resultado elevado. Revisa o acepta el aviso UAC dentro de la VM.' }
+    $report = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json
+    if (-not $report.administrator) { throw 'El proceso solicitado no obtuvo privilegios administrativos.' }
+    $report | Add-Member -NotePropertyName elevation_method -NotePropertyValue 'interactive-uac-one-process'
+    $report | ConvertTo-Json -Compress
+} finally {
+    if (Test-Path -LiteralPath $resultFile) { Remove-Item -LiteralPath $resultFile -Force }
+}
+'@
+    $code = $code.Replace('__PROBE__', (Get-GuestStatusCommand))
+    return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
+}
+function Export-GuestStatus([switch]$Elevated) {
     $info = Get-ManagedInfo
     Assert-Isolated $info
     if ($info['VMState'] -ne 'running') { throw 'La VM debe estar encendida y Guest Additions instaladas.' }
     $passwordFile = Join-Path $script:Root 'guest-password.txt'
     if (-not (Test-Path -LiteralPath $passwordFile)) { throw 'No se encuentra la clave temporal de audituser.' }
     $encoded = Get-GuestStatusCommand
+    $timeout = '60000'
+    $filename = 'guest-status.json'
+    if ($Elevated) {
+        $encoded = Get-GuestAdminStatusCommand
+        $timeout = '180000'
+        $filename = 'guest-admin-status.json'
+        Write-Host 'Abre la ventana de la VM y acepta el aviso UAC de PowerShell. Solo se solicita una consulta elevada de estado.'
+    }
     $output = @(Invoke-VBox @('guestcontrol', [string]$script:State.uuid, 'run', '--exe',
         'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe', '--username', 'audituser',
-        '--passwordfile', $passwordFile, '--timeout', '60000', '--wait-stdout', '--wait-stderr', '--',
+        '--passwordfile', $passwordFile, '--timeout', $timeout, '--wait-stdout', '--wait-stderr', '--',
         '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded))
     $report = ($output -join "`n") | ConvertFrom-Json
     New-Item -ItemType Directory -Path $script:Evidence -Force | Out-Null
-    $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:Evidence 'guest-status.json') -Encoding UTF8
+    $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:Evidence $filename) -Encoding UTF8
     $report | ConvertTo-Json | Write-Host
     if (-not $report.administrator) { Write-Warning 'El canal responde sin elevacion efectiva. No se puede iniciar aun el observador administrativo.' }
     if ($report.active_network_adapters -ne 0 -or $report.default_routes -ne 0) { throw 'El invitado informa red activa; no continuar con la auditoria.' }
@@ -185,6 +223,7 @@ if ($Action -ne 'prepare') {
     switch ($Action) {
         'setup-control' { Initialize-GuestControl }
         'guest-status' { Export-GuestStatus }
+        'guest-admin-status' { Export-GuestStatus -Elevated }
         'status' { $null = Export-Status }
         'screenshot' {
             if ($info['VMState'] -ne 'running') { throw 'La VM no esta encendida; no hay pantalla que capturar.' }
