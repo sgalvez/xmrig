@@ -129,7 +129,7 @@ function Initialize-GuestControl {
     if ($null -eq $baseline) {
         $name = 'windows-clean-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
         Invoke-VBox @('snapshot', [string]$script:State.uuid, 'take', $name, '--description',
-            'Windows desktop confirmed by owner; offline baseline before Guest Additions and miner audit.')
+            'Windows desktop confirmed by owner; offline baseline before miner audit. Guest Additions may already be installed.')
         $snapInfo = Get-ManagedInfo
         $snapshotId = [guid]::Empty
         if (-not [guid]::TryParse([string]$snapInfo['CurrentSnapshotUUID'], [ref]$snapshotId)) {
@@ -152,7 +152,7 @@ function Initialize-GuestControl {
     $baseline | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $script:Evidence 'clean-baseline.json') -Encoding UTF8
     Invoke-VBox @('startvm', [string]$script:State.uuid, '--type', 'headless')
     Write-Host "Instantanea conservada: $($baseline.name)"
-    Write-Host 'Guest Additions montadas en el DVD de la VM. Dentro del invitado, abre VBoxWindowsAdditions.exe como administrador y reinicia el invitado.'
+    Write-Host 'Guest Additions montadas en el DVD de la VM. Si aun no estan instaladas, abre VBoxWindowsAdditions.exe como administrador y reinicia el invitado.'
     Write-Host 'Despues ejecuta -Action guest-status para comprobar el canal y los privilegios efectivos. No se inicio el minero.'
 }
 function Get-GuestStatusCommand {
@@ -228,7 +228,7 @@ $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevated
 try {
     $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -PassThru `
         -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
-    if (-not $child.WaitForExit(120000)) { throw 'La consulta elevada no termino. Revisa la ventana del invitado antes de repetir.' }
+    if (-not $child.WaitForExit(300000)) { throw 'La consulta elevada no termino. Revisa la ventana del invitado antes de repetir.' }
     if (-not (Test-Path -LiteralPath $resultFile)) { throw 'No hay resultado elevado. Revisa o acepta el aviso UAC dentro de la VM.' }
     $report = Get-Content -LiteralPath $resultFile -Raw | ConvertFrom-Json
     if (-not $report.administrator) { throw 'El proceso solicitado no obtuvo privilegios administrativos.' }
@@ -250,11 +250,11 @@ function Export-GuestStatus([switch]$Elevated, [string]$ControlProofId) {
     $passwordFile = Join-Path $script:Root 'guest-password.txt'
     if (-not (Test-Path -LiteralPath $passwordFile)) { throw 'No se encuentra la clave temporal de audituser.' }
     $encoded = Get-GuestStatusCommand
-    $timeout = '60000'
+    $timeout = '180000'
     $filename = 'guest-status.json'
     if ($Elevated) {
         $encoded = Get-GuestAdminStatusCommand $ControlProofId
-        $timeout = '180000'
+        $timeout = '480000'
         $filename = 'guest-admin-status.json'
         if ($ControlProofId) {
             $filename = 'control-proof-' + $ControlProofId + '.json'

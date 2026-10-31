@@ -78,6 +78,10 @@ notify-telegram.py envia hitos y solicitudes al chat privado ya vinculado,
 usando la configuracion local sin imprimir el token. Registra los IDs de entrega
 en .runtime/vbox-audit/telegram-actions.jsonl. Su uso para reportar esta auditoria
 y solicitar acciones en el host fue autorizado expresamente por el usuario.
+El umbral actual es WARN: avances y resultados satisfactorios INFO no se envian.
+Usar --level WARN para problemas que requieran atencion o intervenciones
+necesarias; ERROR para fallos que impidan continuar. Las respuestas a comandos
+del propietario y a su orden de parada siguen habilitadas.
 
 PARADA DESDE TELEGRAM
 El bot local acepta /detener, /stop o "deten todo" (con o sin tilde), solo desde
