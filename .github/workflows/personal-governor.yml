@@ -1,0 +1,26 @@
+name: Personal governor build and tests
+on:
+  push:
+    branches: ['personal/rvn-gpu-governor']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-cross-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Test governor without GPU or network
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/personal/governor.cpp -o /tmp/governor-test
+          /tmp/governor-test
+      - name: Verify recipe reproduces fork sources
+        run: |
+          python3 personal-build/apply_hardening.py .
+          git diff --exit-code -- src
+      - name: Cross compile Windows engine from pinned sources
+        run: docker build --output type=local,dest=/tmp/windows-build personal-build
+      - name: Show build identity (never execute the miner)
+        run: cat /tmp/windows-build/build.json

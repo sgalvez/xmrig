@@ -1,0 +1,26 @@
+{
+  "xmrig_commit": "3b4e4192b66f1d01fbed4d31dbc5091072da7e3b",
+  "sources": [
+    {
+      "name": "xmrig",
+      "version": "6.26.0",
+      "url": "https://codeload.github.com/xmrig/xmrig/tar.gz/b2ca72480c58d197e18c885d9fc1a0c8d517e60a",
+      "sha256": "f8bfbd3ed3e371f51bb40e9df1b236338e5aadfa42c5bccffd59132dac7ce0a9"
+    },
+    {
+      "name": "libuv",
+      "version": "1.53.0",
+      "url": "https://dist.libuv.org/dist/v1.53.0/libuv-v1.53.0.tar.gz",
+      "sha256": "cb0d6dd2128d5a95bd242c6cc982a24fe608fa93da57b6b4ec763b0018c53e64"
+    },
+    {
+      "name": "openssl",
+      "version": "3.5.9",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+      "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+    }
+  ],
+  "upstream_commit": "b2ca72480c58d197e18c885d9fc1a0c8d517e60a",
+  "fork_repository": "https://github.com/sgalvez/xmrig",
+  "source_method": "SHA-256 pinned upstream archive plus hash-verified patches reproducing fork engine sources"
+}

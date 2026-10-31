@@ -1,0 +1,13 @@
+*
+!Dockerfile
+!sources.json
+!fetch.py
+!build.sh
+!mingw.cmake
+!provenance.py
+!windows-libs.cmake
+!recipe.py
+!apply_hardening.py
+!hardening/
+!hardening/**
+!.dockerignore
