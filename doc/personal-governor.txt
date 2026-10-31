@@ -6,7 +6,8 @@ also preserve verified TLS, Windows system DLL loading and 0.5% donation.
 
 Opt in on each OpenCL KAWPOW thread profile with "gpu-duty-percent": 25.
 0 or omission preserves upstream scheduling. Accepted values: integer 5..100.
-Use one thread, worksize 128 and intensity 65536 for the initial RX 9070 XT
+Governed profiles require intensity <= 65536; mixed enabled/disabled
+profiles on the same GPU are rejected. Use one thread, worksize 128 and intensity 65536 for the initial RX 9070 XT
 trial. GPU index must be selected from the local inventory; it is not portable.
 The percentage limits host-observed GPU batch duty, not clocks, wattage, fan
 speed, or a guaranteed fraction of hashrate. Other applications can heat the GPU.
