@@ -36,8 +36,9 @@ struct OclDevice {
 };
 struct OclLaunchData { TestThread thread; OclDevice device; };
 struct AdlLib {
+    static std::atomic<int> hotspot;
     static AdlHealth health(const OclDevice &) {
-        AdlHealth s; s.edge=50; s.hotspot=55; s.polled=Chrono::steadyMSecs(); return s;
+        AdlHealth s; s.edge=50; s.hotspot=hotspot; s.polled=Chrono::steadyMSecs(); return s;
     }
 };
 }

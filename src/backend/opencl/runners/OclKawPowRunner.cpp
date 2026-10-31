@@ -79,7 +79,16 @@ OclKawPowRunner::~OclKawPowRunner()
 
 void OclKawPowRunner::run(uint32_t nonce, uint32_t /*nonce_offset*/, uint32_t *hashOutput)
 {
+    const auto sequence = Nonce::sequence(Nonce::OPENCL);
     personal::GpuBatch budget(m_governor, data(), "search");
+    if (Nonce::isOutdated(Nonce::OPENCL, sequence)) {
+        // Cooling can span many pool jobs. Let the worker consume the newest
+        // job instead of spending a GPU batch on the one held before the halt.
+        hashOutput[0xFF] = 0;
+        m_skippedHashes = m_intensity;
+        budget.complete();
+        return;
+    }
     const size_t local_work_size = m_workGroupSize;
     const size_t global_work_offset = nonce;
     const size_t global_work_size = m_intensity - (m_intensity % m_workGroupSize);

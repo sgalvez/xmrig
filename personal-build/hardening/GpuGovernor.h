@@ -38,20 +38,20 @@ public:
             return;
         }
         m_hadMemory |= s.memory > 0;
-        // Conservative local policy, NOT manufacturer temperature ratings.
-        if (s.edge >= 75 || s.hotspot >= 80 || s.memory >= 80) {
-            fault("temperature-cutoff");
+        // User policy: any available sensor at 80 C pauses submissions.
+        // Thermal pauses recover automatically; invalid telemetry remains a fault.
+        if (s.edge >= 80 || s.hotspot >= 80 || s.memory >= 80) {
+            m_state = State::Cooling;
+            m_reason = s.edge >= 80 ? "edge-temperature" : s.hotspot >= 80 ? "hotspot-temperature" : "memory-temperature";
+            m_duty = 5;
             return;
         }
-        if (s.edge >= 70 || s.hotspot >= 75 || s.memory >= 75) {
-            if (m_state != State::Cooling) { m_coolingSince = now; }
-            m_state = State::Cooling;
-            m_duty = 5;
-        }
-        const bool cool = s.edge <= 55 && s.hotspot <= 60 && s.memory <= 60;
+        const bool cool = s.edge <= 60 && s.hotspot <= 60 && s.memory <= 60;
         if (m_state == State::Cooling) {
-            if (cool && now - m_coolingSince >= 5000) { m_state = State::Running; }
-            else { return; }
+            if (!cool) { return; }
+            m_state = State::Running;
+            m_reason = "none";
+            m_adjusted = now;
         }
         if ((s.edge >= 60 || s.hotspot >= 65 || s.memory >= 65) && now - m_adjusted >= 1000) {
             m_duty = std::max(5U, m_duty > 5 ? m_duty - 5 : 5U);
@@ -72,6 +72,7 @@ public:
     }
     bool ready(uint64_t now) const { return m_state == State::Running && now >= m_next; }
     unsigned duty() const { return m_duty; }
+    unsigned effectiveDuty() const { return m_state == State::Running ? m_duty : 0; }
     unsigned maximum() const { return m_maximum; }
     State state() const { return m_state; }
     const char *reason() const { return m_reason; }
@@ -86,7 +87,6 @@ private:
     unsigned m_duty;
     uint64_t m_next = 0;
     uint64_t m_adjusted = 0;
-    uint64_t m_coolingSince = 0;
     bool m_hadMemory = false;
     State m_state = State::Running;
     const char *m_reason = "none";

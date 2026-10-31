@@ -73,8 +73,9 @@ struct OclGovernor {
                 policy.sample(last, now);
             }
             if (!logged || now - logged >= 1000 || policy.state() == GpuGovernor::State::Fault) {
-                LOG_INFO("gpu-governor {\"v\":1,\"gpu\":%u,\"pci\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"phase\":\"%s\",\"duty_percent\":%u}",
-                         data.device.index(), data.device.topology().toString().data(), policy.name(), policy.reason(), phase, policy.duty());
+                LOG_INFO("gpu-governor {\"v\":1,\"gpu\":%u,\"pci\":\"%s\",\"state\":\"%s\",\"reason\":\"%s\",\"phase\":\"%s\",\"duty_percent\":%u,\"edge_c\":%s,\"hotspot_c\":%s,\"memory_c\":%s}",
+                         data.device.index(), data.device.topology().toString().data(), policy.name(), policy.reason(), phase, policy.effectiveDuty(),
+                         AdlHealth::number(last.edge).c_str(), AdlHealth::number(last.hotspot).c_str(), AdlHealth::number(last.memory).c_str());
                 logged = now;
             }
             if (policy.state() == GpuGovernor::State::Fault) { throw std::runtime_error(policy.reason()); }

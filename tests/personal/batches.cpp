@@ -4,6 +4,7 @@
 #include <cassert>
 #include <iostream>
 std::atomic<bool> xmrig::Nonce::stopped{false};
+std::atomic<int> xmrig::AdlLib::hotspot{55};
 using namespace xmrig;
 using namespace xmrig::personal;
 int main()
@@ -38,6 +39,26 @@ int main()
     try { GpuBatch failed(shared,a,"dag"); throw std::runtime_error("fake queue failure"); }
     catch(const std::runtime_error &) {}
     assert(OclGovernor::acquire(a)->policy.state()==GpuGovernor::State::Fault);
+    for (const char *phase : {"dag", "search"}) {
+        OclLaunchData c;
+        c.device.pci.id=std::string("thermal-")+phase;
+        auto thermal=OclGovernor::acquire(c);
+        AdlLib::hotspot=80;
+        std::atomic<bool> admitted{false};
+        std::thread cooler([&]() {
+            try { GpuBatch budget(thermal,c,phase); admitted=true; budget.complete(); }
+            catch(const std::runtime_error &) {}
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        assert(!admitted); // No kernel submission while halted.
+        AdlLib::hotspot=60;
+        const auto deadline=Chrono::steadyMSecs()+2000;
+        while(!admitted && Chrono::steadyMSecs()<deadline) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if(!admitted) Nonce::stopped=true;
+        cooler.join();
+        assert(admitted); // Same controller resumes DAG/search after cooling.
+    }
+    AdlLib::hotspot=55;
     auto cancellable=OclGovernor::acquire(b);
     cancellable->policy.completed(0,Chrono::steadyMSecs()+60000);
     bool cancelled=false;
