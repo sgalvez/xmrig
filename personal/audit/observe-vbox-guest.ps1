@@ -38,6 +38,12 @@ $MonitorStarted = $false
 function Write-Result {
     $script:Result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $script:ResultPath -Encoding UTF8
 }
+function Assert-DefenderActive($Status) {
+    if($null -eq $Status -or $Status.AMServiceEnabled -ne $true -or
+       $Status.AntivirusEnabled -ne $true -or $Status.RealTimeProtectionEnabled -ne $true) {
+        throw 'No se confirma Defender activo; muestra sin ejecutar.'
+    }
+}
 function Save-Environment([string]$Name) {
     Get-CimInstance Win32_Service | Select-Object Name,State,StartMode,PathName |
         ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$OutputDir\$Name-services.json" -Encoding UTF8
@@ -69,6 +75,7 @@ function Save-Defender([string]$Name) {
 function Invoke-Sample([string]$Name, [string]$Arguments, [int]$Seconds) {
     $script:Monitor.Refresh()
     if ($script:Monitor.HasExited -or -not (Test-Path -LiteralPath $Trace)) { throw 'El observador ya no esta activo; no se inicia otra fase.' }
+    Assert-DefenderActive (Get-MpComputerStatus -ErrorAction Stop)
     if ((Get-FileHash -LiteralPath $Sample).Hash.ToLowerInvariant() -ne $ExpectedSha) { throw 'La muestra cambio antes de ejecutarse.' }
     if ((Get-FileHash -LiteralPath $manifestPath).Hash.ToLowerInvariant() -ne $ExpectedManifestSha) { throw 'Manifiesto modificado durante la prueba.' }
     $phase = [ordered]@{name=$Name;arguments=$Arguments;started_utc=[DateTime]::UtcNow.ToString('o');
@@ -110,6 +117,7 @@ Start-Transcript -Path "$OutputDir\transcript.txt" | Out-Null
 try {
     Write-Result
     Save-Environment 'before'
+    Assert-DefenderActive (Get-MpComputerStatus -ErrorAction Stop)
     foreach ($property in $Manifest.files.PSObject.Properties) {
         if ($property.Name -notin @('xmrig.exe','Procmon64.exe','observe.ps1','offline-config.json')) { throw 'Nombre de entrada no permitido.' }
         if ((Get-FileHash -LiteralPath (Join-Path $InputDir $property.Name)).Hash.ToLowerInvariant() -ne $property.Value) {

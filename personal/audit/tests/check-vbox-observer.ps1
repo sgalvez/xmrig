@@ -9,13 +9,17 @@ if($env:COMPUTERNAME -ne 'XMRIG-AUDIT'){
     if(-not $blocked){throw 'La proteccion de ejecucion en host no rechazo el entorno.'}
 }
 # Only load the phase function. Processes, hashes and paths below are mocked.
-$node=$ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-Sample'},$true)
-Invoke-Expression $node.Extent.Text
+foreach($functionName in @('Invoke-Sample','Assert-DefenderActive')){
+    $node=$ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $functionName},$true)
+    Invoke-Expression $node.Extent.Text
+}
 $script:Result=@{status='';sample_started=$false;phases=@()}
 $script:Sample='C:\fixture\xmrig.exe'; $script:InputDir='C:\fixture'; $script:OutputDir='C:\fixture-output'
 $script:Trace='C:\fixture-output\trace.pml'; $script:manifestPath='C:\fixture\manifest.json'
 $script:ExpectedSha='a'*64; $script:ExpectedManifestSha='b'*64
 $script:Started=0; $script:Tampered=$false
+$script:AvActive=$true
+function Get-MpComputerStatus {return @{AMServiceEnabled=$true;AntivirusEnabled=$true;RealTimeProtectionEnabled=$script:AvActive}}
 $script:Monitor=New-Object PSObject -Property @{HasExited=$false}
 $script:Monitor | Add-Member ScriptMethod Refresh {}
 function Write-Result {}
@@ -41,4 +45,11 @@ $script:Tampered=$false; $script:Monitor.HasExited=$true
 $blocked=$false
 try {Invoke-Sample 'offline' '--config=fixture' 1} catch {$blocked=$true}
 if(-not $blocked -or $script:Started -ne 1){throw 'La muestra se ejecuto sin monitor.'}
-Write-Host 'Parser, host execution guard, sample hash and live-monitor gates passed. No sample executed.'
+$script:Monitor.HasExited=$false; $script:AvActive=$false
+$blocked=$false
+try {Invoke-Sample 'offline' '--config=fixture' 1} catch {$blocked=$true}
+if(-not $blocked -or $script:Started -ne 1){throw 'La muestra se ejecuto con Defender inactivo.'}
+$blocked=$false
+try {Assert-DefenderActive $null} catch {$blocked=$true}
+if(-not $blocked){throw 'Se acepto un estado desconocido de Defender.'}
+Write-Host 'Parser, host guard, sample hash, live monitor and active Defender gates passed. No sample executed.'

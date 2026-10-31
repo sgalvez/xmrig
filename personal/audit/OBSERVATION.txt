@@ -1,0 +1,58 @@
+Estos componentes se usan desde la integración personal xmrig-personal-lab.
+El orquestador de esa integración fija hashes, verifica aislamiento y mantiene
+la parada por Telegram. No ejecutar los scripts guest en el Windows principal.
+
+Observación de ejecutables dentro de VirtualBox
+
+La preparación de la VM está descrita en VIRTUALBOX.txt. El observador requiere
+un snapshot frío, Guest Additions funcionales, usuario audituser y elevación UAC
+dentro de XMRIG-AUDIT. Confirma NIC1..8 deshabilitadas, sin carpetas compartidas,
+portapapeles, drag-and-drop ni GPU pasada al invitado. La parada de Telegram se
+consulta antes y después de cada operación.
+
+vbox-observe.py conserva manifiestos y evidencia bajo .runtime/vbox-audit/runs.
+No ejecutar el minero en el host para probar el observador.
+
+1. tools: descarga Process Monitor oficial y verifica firma Microsoft en Windows.
+2. prepare --sample RUTA --sha256 HASH --label ETIQUETA: fija entradas locales.
+3. stage --run-id ID: copia por Guest Additions. stage-iso usa en su lugar un DVD
+   virtual ISO/Joliet de solo lectura con archivos visibles, sin autorun ni cifrado.
+   Para ISO se requiere pycdlib==1.14.0 en un venv separado.
+4. run --run-id ID: verifica script/manifiesto; pide UAC solamente dentro de la VM.
+5. peek --run-id ID: consulta avance. collect --run-id ID: recupera evidencia.
+6. analyze-trace.py RUTA_DEL_OUTPUT: resume el CSV por proceso y descendientes,
+   incluyendo códigos de salida, cambios, módulos y eventos de red. Conserva
+   hashes del CSV y resultado. No transforma falta de eventos en un veredicto.
+7. Apagar el Windows invitado ordenadamente y usar restore antes de cada muestra.
+
+El observador ejecuta ayuda, versión, arranque sin configuración y configuración
+offline acotada. El destino es únicamente 127.0.0.1:39191; CPU/CUDA están
+desactivadas, no se proporciona una cartera real. Captura PML/CSV y estados antes
+y después de Defender, servicios, tareas y Run/RunOnce. Un fallo o bloqueo queda
+registrado. No desactiva Defender ni crea exclusiones. Si una copia falla, volver
+al snapshot antes de otra muestra: no asumir que el invitado quedó limpio.
+
+update-defender-guest.ps1 instala un paquete mpam-fe.exe previamente verificado
+en el host mediante Authenticode Microsoft y SHA-256. Solo puede ejecutarse en
+la VM prevista, elevada y sin red. Registrar versión/fecha antes y después y
+guardar un nuevo snapshot frío antes de probar muestras. El paquete se ejecuta
+en el invitado; en el host solo se comprueba su firma.
+
+Limitaciones: una VM sin internet carece de reputación cloud y no reproduce la
+Radeon ni su driver. Un resultado sin detecciones no descarta la alerta del host.
+La muestra elevada podría alterar el observador del invitado. Los relojes y la
+planificación de esta VM han presentado anomalías: conservar UTC y Stopwatch,
+sin presentar sus tiempos como un benchmark de rendimiento o GPU. La comparación
+de tareas por nombre no detecta cambios de acciones. Los archivos originales se
+mantienen separados de los ejecutables generados por optimizaciones posteriores.
+
+Análisis antivirus explícito, separado de la ejecución:
+vbox-scan.py prepare --sources ARCHIVO_JSON crea un ISO de solo lectura con las
+muestras original/fork/upstream/optimized fijadas por path y sha256. Cada entrada
+del JSON contiene label, path (local) y sha256. run --run-id ID requiere el mismo
+snapshot limpio; ejecuta únicamente MpCmdRun.exe firmado por Microsoft dentro
+de la VM, no los mineros. collect --run-id ID recupera scans.json y las salidas.
+No agrega exclusiones, no desactiva remediación y no conecta la VM a Internet.
+El código 0 de MpCmdRun no demuestra inocuidad: puede significar ausencia de
+detecciones o remediación completada. Revisar también amenazas, recursos y logs.
+Referencia: https://learn.microsoft.com/en-us/defender-endpoint/command-line-arguments-microsoft-defender-antivirus

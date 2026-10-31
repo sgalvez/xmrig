@@ -11,7 +11,7 @@ El usuario autorizó implementación, pruebas, commits y avisos por Telegram.
 | 3 | Comparar upstream, original y fork desde el mismo snapshot | Hashes exactos, trazas de procesos/archivos/registro/red, detecciones y bloqueos documentados | En ejecución |
 | 4 | Mejorar la fiabilidad del observador | Tiempo monotónico, códigos de salida y estado real; análisis de CSV sin cargar toda la traza en memoria | Implementado y probado |
 | 5 | Ejecutar pruebas prolongadas del gobernador con sensores y reloj simulados | Pausa en 80 °C, reanudación en 60 °C, límites de actividad, fallos de sensores enclavados y ausencia de bloqueos | 960.000 lecturas; 114.535 pausas y 114.467 reanudaciones verificadas |
-| 6 | Corregir problemas demostrados por esas pruebas y publicar commits separados | Pruebas de regresión y CI; conservar trazabilidad de la receta y no sustituir silenciosamente binarios auditados | Publicado a5de7a7; compilación Windows en CI en curso |
+| 6 | Corregir problemas demostrados por esas pruebas y publicar commits separados | Pruebas de regresión y CI; conservar trazabilidad de la receta y no sustituir silenciosamente binarios auditados | Publicado a5de7a7; compilación Windows y pruebas de CI aprobadas |
 | 7 | Mejorar diagnóstico y presentación de la integración | Distinguir preparación DAG, búsqueda, enfriamiento, fallo y datos ausentes; conservar consulta y parada por Telegram | Transiciones térmicas inmediatas implementadas; polling de UI conserva resolución de cinco segundos |
 | 8 | Evaluar la salida al equipo principal | Informe con cobertura y limitaciones; ningún resultado offline equivale a descartar una alerta cloud | Pendiente de evidencia |
 

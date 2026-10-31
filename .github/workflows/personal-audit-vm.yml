@@ -17,8 +17,10 @@ jobs:
         run: |
           ./personal/audit/tests/check-vbox-prepare.ps1 -ScriptPath ./personal/audit/vbox-windows.ps1
           ./personal/audit/tests/check-vbox-observer.ps1 -ScriptPath ./personal/audit/observe-vbox-guest.ps1
-          $tokens=$null; $errors=$null
-          $null=[System.Management.Automation.Language.Parser]::ParseFile("$pwd/personal/audit/update-defender-guest.ps1",[ref]$tokens,[ref]$errors)
-          if(@($errors).Count){throw ($errors|Out-String)}
+          foreach($scriptName in @('update-defender-guest.ps1','scan-samples-guest.ps1')){
+            $tokens=$null; $errors=$null
+            $null=[System.Management.Automation.Language.Parser]::ParseFile("$pwd/personal/audit/$scriptName",[ref]$tokens,[ref]$errors)
+            if(@($errors).Count){throw ($errors|Out-String)}
+          }
       - name: Verify trace process attribution and PID reuse handling
         run: python -m unittest discover -s personal/audit/tests -p test_trace_analysis.py
