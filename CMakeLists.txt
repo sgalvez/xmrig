@@ -1,3 +1,4 @@
+# Personal modification 2026-10-31: no donation connections; configured pools only.
 cmake_minimum_required(VERSION 3.10)
 project(xmrig)
 
@@ -66,7 +67,6 @@ set(HEADERS
     src/net/JobResult.h
     src/net/JobResults.h
     src/net/Network.h
-    src/net/strategies/DonateStrategy.h
     src/Summary.h
     src/version.h
    )
@@ -113,7 +113,6 @@ set(SOURCES
     src/core/Taskbar.cpp
     src/net/JobResults.cpp
     src/net/Network.cpp
-    src/net/strategies/DonateStrategy.cpp
     src/Summary.cpp
     src/xmrig.cpp
    )

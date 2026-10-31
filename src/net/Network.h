@@ -1,3 +1,4 @@
+// Personal modification 2026-10-31: no donation connections; configured pools only.
 /* XMRig
  * Copyright (c) 2019      Howard Chu  <https://github.com/hyc>
  * Copyright (c) 2018-2023 SChernykh   <https://github.com/SChernykh>
@@ -73,7 +74,7 @@ protected:
 private:
     constexpr static int kTickInterval = 1 * 1000;
 
-    void setJob(IClient *client, const Job &job, bool donate);
+    void setJob(IClient *client, const Job &job);
     void tick();
 
 #   ifdef XMRIG_FEATURE_API
@@ -82,7 +83,6 @@ private:
 #   endif
 
     Controller *m_controller;
-    IStrategy *m_donate     = nullptr;
     IStrategy *m_strategy   = nullptr;
     NetworkState *m_state   = nullptr;
     Timer *m_timer          = nullptr;

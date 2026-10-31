@@ -1,3 +1,4 @@
+// Personal modification 2026-10-31: no donation connections; configured pools only.
 // Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright 2010      Jeff Garzik <jgarzik@pobox.com>
@@ -31,6 +32,7 @@
 #include "base/net/stratum/strategies/FailoverStrategy.h"
 #include "base/net/stratum/strategies/SinglePoolStrategy.h"
 #include "donate.h"
+#include "personal/DonationPolicy.h"
 
 
 #ifdef XMRIG_FEATURE_BENCHMARK
@@ -218,23 +220,14 @@ void xmrig::Pools::toJSON(rapidjson::Value &out, rapidjson::Document &doc) const
 
 void xmrig::Pools::setDonateLevel(double level)
 {
-    if (level >= kMinimumDonateLevel && level <= 99) {
-        m_donateLevel = level;
-    }
+    m_donateLevel = personal::donationPercent(level);
 }
 
 
 void xmrig::Pools::setProxyDonate(int value)
 {
-    switch (value) {
-    case PROXY_DONATE_NONE:
-    case PROXY_DONATE_AUTO:
-    case PROXY_DONATE_ALWAYS:
-        m_proxyDonate = static_cast<ProxyDonate>(value);
-
-    default:
-        break;
-    }
+    (void) value;
+    m_proxyDonate = PROXY_DONATE_NONE;
 }
 
 

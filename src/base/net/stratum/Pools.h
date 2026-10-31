@@ -1,3 +1,4 @@
+// Personal modification 2026-10-31: no donation connections; configured pools only.
 // Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright 2010      Jeff Garzik <jgarzik@pobox.com>
@@ -91,7 +92,7 @@ private:
     double m_donateLevel;
     int m_retries               = 5;
     int m_retryPause            = 5;
-    ProxyDonate m_proxyDonate   = PROXY_DONATE_AUTO;
+    ProxyDonate m_proxyDonate   = PROXY_DONATE_NONE;
     std::vector<Pool> m_data;
 
 #   ifdef XMRIG_FEATURE_BENCHMARK

@@ -1,3 +1,4 @@
+// Personal modification 2026-10-31: no donation connections; configured pools only.
 /* XMRig
  * Copyright (c) 2019      Howard Chu  <https://github.com/hyc>
  * Copyright (c) 2018-2023 SChernykh   <https://github.com/SChernykh>
@@ -36,7 +37,6 @@
 #include "core/Miner.h"
 #include "net/JobResult.h"
 #include "net/JobResults.h"
-#include "net/strategies/DonateStrategy.h"
 
 
 #ifdef XMRIG_FEATURE_API
@@ -72,10 +72,6 @@ xmrig::Network::Network(Controller *controller) :
     const Pools &pools = controller->config()->pools();
     m_strategy = pools.createStrategy(m_state);
 
-    if (pools.donateLevel() > 0) {
-        m_donate = new DonateStrategy(controller, this);
-    }
-
     m_timer = new Timer(this, kTickInterval, kTickInterval);
 }
 
@@ -85,7 +81,6 @@ xmrig::Network::~Network()
     JobResults::stop();
 
     delete m_timer;
-    delete m_donate;
     delete m_strategy;
     delete m_state;
 }
@@ -116,13 +111,8 @@ void xmrig::Network::execCommand(char command)
 }
 
 
-void xmrig::Network::onActive(IStrategy *strategy, IClient *client)
+void xmrig::Network::onActive(IStrategy *, IClient *client)
 {
-    if (m_donate && m_donate == strategy) {
-        LOG_NOTICE("%s " WHITE_BOLD("dev donate started"), Tags::network());
-        return;
-    }
-
     const auto &pool = client->pool();
 
 #   ifdef XMRIG_FEATURE_BENCHMARK
@@ -163,23 +153,14 @@ void xmrig::Network::onConfigChanged(Config *config, Config *previousConfig)
 }
 
 
-void xmrig::Network::onJob(IStrategy *strategy, IClient *client, const Job &job, const rapidjson::Value &)
+void xmrig::Network::onJob(IStrategy *, IClient *client, const Job &job, const rapidjson::Value &)
 {
-    if (m_donate && m_donate->isActive() && m_donate != strategy) {
-        return;
-    }
-
-    setJob(client, job, m_donate == strategy);
+    setJob(client, job);
 }
 
 
 void xmrig::Network::onJobResult(const JobResult &result)
 {
-    if (result.index == 1 && m_donate) {
-        m_donate->submit(result);
-        return;
-    }
-
     m_strategy->submit(result);
 }
 
@@ -208,13 +189,8 @@ void xmrig::Network::onLogin(IStrategy *, IClient *client, rapidjson::Document &
 }
 
 
-void xmrig::Network::onPause(IStrategy *strategy)
+void xmrig::Network::onPause(IStrategy *)
 {
-    if (m_donate && m_donate == strategy) {
-        LOG_NOTICE("%s " WHITE_BOLD("dev donate finished"), Tags::network());
-        m_strategy->resume();
-    }
-
     if (!m_strategy->isActive()) {
         LOG_ERR("%s " RED("no active pools, stop mining"), Tags::network());
 
@@ -262,7 +238,7 @@ void xmrig::Network::onRequest(IApiRequest &request)
 #endif
 
 
-void xmrig::Network::setJob(IClient *client, const Job &job, bool donate)
+void xmrig::Network::setJob(IClient *client, const Job &job)
 {
 #   ifdef XMRIG_FEATURE_BENCHMARK
     if (!BenchState::size())
@@ -291,11 +267,7 @@ void xmrig::Network::setJob(IClient *client, const Job &job, bool donate)
                  Tags::network(), client->pool().host().data(), client->pool().port(), zmq_buf, diff, scale, job.algorithm().name(), height_buf, tx_buf);
     }
 
-    if (!donate && m_donate) {
-        static_cast<DonateStrategy *>(m_donate)->update(client, job);
-    }
-
-    m_controller->miner()->setJob(job, donate);
+    m_controller->miner()->setJob(job, false);
 }
 
 
@@ -304,10 +276,6 @@ void xmrig::Network::tick()
     const uint64_t now = Chrono::steadyMSecs();
 
     m_strategy->tick(now);
-
-    if (m_donate) {
-        m_donate->tick(now);
-    }
 
 #   ifdef XMRIG_FEATURE_API
     m_controller->api()->tick();

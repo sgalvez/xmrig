@@ -1,3 +1,4 @@
+// Personal modification 2026-10-31: no donation connections; configured pools only.
 /* XMRig
  * Copyright (c) 2018-2021 SChernykh   <https://github.com/SChernykh>
  * Copyright (c) 2016-2021 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
@@ -563,7 +564,7 @@ void xmrig::EthStratumClient::subscribe()
     auto &allocator = doc.GetAllocator();
 
     Value params(kArrayType);
-    params.PushBack(StringRef(agent()), allocator);
+    params.PushBack(StringRef("xmrig-personal"), allocator);
 
     JsonRequest::create(doc, m_sequence, "mining.subscribe", params);
 

@@ -1,3 +1,4 @@
+// Personal modification 2026-10-31: no donation connections; configured pools only.
 /* XMRig
  * Copyright (c) 2019      jtgrassie   <https://github.com/jtgrassie>
  * Copyright (c) 2018-2024 SChernykh   <https://github.com/SChernykh>
@@ -643,7 +644,7 @@ void xmrig::Client::login()
     Value params(kObjectType);
     params.AddMember("login", m_user.toJSON(),     allocator);
     params.AddMember("pass",  m_password.toJSON(), allocator);
-    params.AddMember("agent", StringRef(m_agent),  allocator);
+    params.AddMember("agent", StringRef("xmrig-personal"), allocator);
 
     if (!m_rigId.isNull()) {
         params.AddMember("rigid", m_rigId.toJSON(), allocator);
@@ -705,39 +706,8 @@ void xmrig::Client::parse(char *line, size_t len)
     const char *method = Json::getString(doc, "method");
 
     if (method && strcmp(method, "client.reconnect") == 0) {
-        const auto &params = Json::getValue(doc, "params");
-        if (!params.IsArray()) {
-            LOG_ERR("%s " RED("invalid client.reconnect notification: params is not an array"), tag());
-            return;
-        }
-
-        auto arr = params.GetArray();
-
-        if (arr.Empty()) {
-            LOG_ERR("%s " RED("invalid client.reconnect notification: params array is empty"), tag());
-            return;
-        }
-
-        if (arr.Size() != 2) {
-            LOG_ERR("%s " RED("invalid client.reconnect notification: params array has wrong size"), tag());
-            return;
-        }
-
-        if (!arr[0].IsString()) {
-            LOG_ERR("%s " RED("invalid client.reconnect notification: host is not a string"), tag());
-            return;
-        }
-
-        if (!arr[1].IsString()) {
-            LOG_ERR("%s " RED("invalid client.reconnect notification: port is not a string"), tag());
-            return;
-        }
-
-        std::stringstream s;
-        s << arr[0].GetString() << ":" << arr[1].GetString();
-        LOG_WARN("%s " YELLOW("client.reconnect to %s"), tag(), s.str().c_str());
-        setPoolUrl(s.str().c_str());
-        return reconnect();
+        LOG_WARN("%s " YELLOW("client.reconnect ignored: destination changes require local configuration"), tag());
+        return;
     }
 
     if (id.IsInt64()) {

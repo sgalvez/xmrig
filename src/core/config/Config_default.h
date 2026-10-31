@@ -1,3 +1,4 @@
+// Personal modification 2026-10-31: no donation connections; configured pools only.
 // Modified by XMRig Personal Lab, 2026-10-30: authenticated TLS, Windows DLL hardening and fractional donations.
 /* XMRig
  * Copyright (c) 2018-2021 SChernykh   <https://github.com/SChernykh>
@@ -86,28 +87,10 @@ R"===(
         "cn/0": false,
         "cn-lite/0": false
     },
-    "donate-level": 0.5,
-    "donate-over-proxy": 1,
+    "donate-level": 0.0,
+    "donate-over-proxy": 0,
     "log-file": null,
-    "pools": [
-        {
-            "algo": null,
-            "coin": null,
-            "url": "donate.v2.xmrig.com:3333",
-            "user": "YOUR_WALLET_ADDRESS",
-            "pass": "x",
-            "rig-id": null,
-            "nicehash": false,
-            "keepalive": false,
-            "enabled": true,
-            "tls": false,
-            "tls-fingerprint": null,
-            "daemon": false,
-            "socks5": null,
-            "self-select": null,
-            "submit-to-origin": false
-        }
-    ],
+    "pools": [],
     "print-time": 60,
     "health-print-time": 60,
     "dmi": true,
