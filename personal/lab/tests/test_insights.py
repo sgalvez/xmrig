@@ -6,7 +6,7 @@ from xmrig_personal.insights import explain
 
 
 def fixture():
-    return {'state':'waiting','title':'Prueba','miner':{'process':'Activo','trial':True,'active_seconds':62,'cooling_seconds':138},
+    return {'state':'waiting','title':'Prueba','miner':{'process':'Activo','trial':True,'active_seconds':92,'search_seconds':62,'preparation_seconds':30,'cooling_seconds':138},
             'telemetry':{'governor_state':'cooling','governor_phase':'dag','duty_percent':'0',
                          'edge_c':'57','hotspot_c':'59','memory_c':'78','fan_rpm':'0'},
             'pool':{'fresh':True,'last_share_age':None}}
@@ -17,7 +17,7 @@ class InsightTests(unittest.TestCase):
         s=explain(fixture())
         self.assertIn('Memoria 78 → 60 °C (bajar 18 °C)',s['thermal'])
         self.assertIn('62/300',s['trial'])
-        self.assertIn('238 s activos',s['trial'])
+        self.assertIn('238 s de búsqueda',s['trial'])
         self.assertIn('2 min 18 s',s['trial'])
         self.assertIn('0 RPM',s['fan'])
         self.assertIn('No se envía trabajo',s['work'])
@@ -26,6 +26,14 @@ class InsightTests(unittest.TestCase):
         d=fixture();d['telemetry'].update(governor_state='running',duty_percent='5')
         self.assertIn('PREPARANDO',explain(d)['summary'])
         self.assertIn('Recibir jobs no confirma shares',explain(d)['work'])
+
+    def test_dag_progress_and_search_clock_are_distinct(self):
+        d=fixture();d['telemetry'].update(governor_state='running',dag_done='25',dag_total='100')
+        d['miner'].update(active_seconds=360,search_seconds=0,preparation_seconds=360)
+        result=explain(d)
+        self.assertIn('25.0%',result['work'])
+        self.assertIn('0/300',result['trial'])
+        self.assertIn('Preparación: 6 min',result['trial'])
 
     def test_missing_fan_and_old_pool_are_not_zero_or_no_shares(self):
         d=fixture();d['telemetry']['fan_rpm']=None;d['pool']['fresh']=False

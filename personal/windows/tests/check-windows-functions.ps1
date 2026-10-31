@@ -44,15 +44,15 @@ $Exe = Join-Path $InstallRoot 'xmrig.exe'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $Utf8 = New-Object Text.UTF8Encoding($false)
 $Engine = 'XMRig'
-$SourceCommit = 'e04811e6121020302ab58f71909137dced3ac33b'
+$SourceCommit = 'd052b8b9b5d83d6adadf5f6a127e76ac3faa53aa'
 $GpuId = 2
 # Do not change SystemRoot: Windows cryptographic providers need the real DLLs.
 function Get-GpuLibraryPath([string]$Name) { return Join-Path (Join-Path $temp 'System32') $Name }
 [void][IO.Directory]::CreateDirectory((Join-Path $temp 'System32'))
 foreach ($name in @('OpenCL.dll','atiadlxx.dll')) { [IO.File]::WriteAllText((Join-Path (Join-Path $temp 'System32') $name), 'Fixture, never loaded.') }
 $Version = 'test'
-$SecurityPolicy = 'rvn-governor-2'
-$MiningProfile = 'rx9070xt-duty25-halt80-resume60-v2'
+$SecurityPolicy = 'rvn-governor-3'
+$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-v3'
 $BuildRoot = Join-Path $temp 'artifacts'
 $TrustFile = Join-Path $temp 'trusted-build.json'
 function Assert-StandardUser { } # Identity APIs require actual Windows; no elevation in fixtures.
@@ -137,6 +137,21 @@ try {
     Assert-Equal $settings.pools[0].algo 'kawpow'
     Assert-Equal $settings.pools[0].tls $true
     Assert-Equal $settings.pools[0].user ($config.address + '.probe-aaaaaaaaaaaaaaaaaaaa')
+    # Windows PowerShell must preserve fractional intervals over a full trial.
+    $clock = @{last=0.0; active_seconds=0.0; cooling_seconds=0.0; search_seconds=0.0; preparation_seconds=0.0; cooling=$false; phase='search'}
+    for ($i=1; $i -le 300; $i++) { Update-TrialClock $clock ($i * (319.0 / 300.0)) $false 'search' }
+    if ([Math]::Abs($clock.search_seconds - 319.0) -gt 0.000001) { throw 'Fractional intervals lost precision' }
+    $clock = @{last=0.0; active_seconds=0.0; cooling_seconds=0.0; search_seconds=0.0; preparation_seconds=0.0; cooling=$false; phase='dag'}
+    Update-TrialClock $clock 30 $false 'search'
+    Assert-Equal $clock.search_seconds 0
+    Assert-Equal $clock.preparation_seconds 30
+    Update-TrialClock $clock 130 $true 'search'
+    Update-TrialClock $clock 3730 $false 'search'
+    Update-TrialClock $clock 3930 $false 'search'
+    Assert-Equal $clock.search_seconds 300
+    Assert-Equal $clock.cooling_seconds 3600
+    Assert-Equal $clock.active_seconds 330
+    Assert-Throws { Update-TrialClock $clock 3929 $false 'search' }
     Assert-Equal $settings.opencl.kawpow[0].index 2
     Assert-Equal $settings.opencl.kawpow.Count 1
     Assert-Equal $settings.'donate-level' 0.5

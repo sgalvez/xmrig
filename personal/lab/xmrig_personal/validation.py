@@ -9,12 +9,12 @@ class ValidationError(ValueError):
     pass
 
 ENGINE = 'XMRig'
-COMMIT = 'e04811e6121020302ab58f71909137dced3ac33b'
-POLICY = 'rvn-governor-2'
-MINING_PROFILE = 'rx9070xt-duty25-halt80-resume60-v2'
+COMMIT = 'd052b8b9b5d83d6adadf5f6a127e76ac3faa53aa'
+POLICY = 'rvn-governor-3'
+MINING_PROFILE = 'rx9070xt-duty25-halt80-resume60-search300-v3'
 
 
-def validate_probe(config, probe, build, gpu, pool, now):
+def validate_record(config, probe, build, gpu, now):
     if not isinstance(probe, dict) or probe.get('completed') is not True or probe.get('error'):
         raise ValidationError('La prueba no terminó correctamente. Revisa logs; no se habilita el arranque permanente.')
     if build.get('engine') != ENGINE or build.get('commit') != COMMIT or build.get('security_policy') != POLICY or not re.fullmatch(r'[a-f0-9]{64}', build.get('sha256', '')):
@@ -25,14 +25,26 @@ def validate_probe(config, probe, build, gpu, pool, now):
         raise ValidationError('La prueba corresponde a otra GPU, compilación o configuración.')
     start, end = probe.get('started'), probe.get('ended')
     active, cooling = probe.get('active_seconds'), probe.get('cooling_seconds')
-    numbers = (start, end, active, cooling, now)
+    search, preparation = probe.get('search_seconds'), probe.get('preparation_seconds')
+    observed, search_started = probe.get('observed_seconds'), probe.get('search_started')
+    numbers = (start, end, active, cooling, search, preparation, observed, search_started, now)
     if (any(isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) for n in numbers)
-            or not (0 <= now-end <= 600 and 295 <= active <= 420 and cooling >= 0)
-            or abs((end-start) - (active+cooling)) > 5):
-        raise ValidationError('La prueba es antigua o no acredita cinco minutos sin pausa térmica; repite mine-test.')
+            or not (0 <= now-end <= 600 and 295 <= search <= 420 and cooling >= 0 and 0 <= preparation <= 900
+                    and start <= search_started <= end and search <= end-search_started+2)
+            or abs(active - (search+preparation)) > 0.1
+            or abs(observed - (active+cooling)) > 0.1
+            or abs((end-start) - observed) > 5):
+        raise ValidationError('La prueba está vencida o sus tiempos no acreditan cinco minutos de búsqueda después del DAG. Revisa el registro de prueba.')
     worker = probe.get('probe_worker', '')
     if not re.fullmatch(r'probe-[a-f0-9]{20}', worker):
         raise ValidationError('Worker temporal inválido.')
+    return expected
+
+
+def validate_probe(config, probe, build, gpu, pool, now):
+    expected = validate_record(config, probe, build, gpu, now)
+    start, end = probe['search_started'], probe['ended']
+    worker = probe['probe_worker']
     candidates = pool.get('workers', {}).get('list', [])
     for entry in candidates:
         try:
@@ -48,6 +60,8 @@ def validate_probe(config, probe, build, gpu, pool, now):
 def confirm(runtime, config, gpu, build_path, fetch, sleep=time.sleep, clock=time.time):
     probe = read_json(runtime / 'xmrig-probe.json')
     build = read_json(build_path)
+    # A malformed/expired trial cannot become valid by polling the pool again.
+    validate_record(config, probe, build, gpu, clock())
     last_error = None
     for attempt in range(5):
         try:

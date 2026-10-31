@@ -21,8 +21,8 @@ function Get-MpThreatDetection {
     if ($script:changeDuring -and $script:queries -eq 2) { $script:detections[0].DetectionID='changed-during-accept' }
     return $script:detections
 }
-$Engine='XMRig'; $Version='6.26.0'; $SecurityPolicy='rvn-governor-2'
-$SourceCommit='e04811e6121020302ab58f71909137dced3ac33b'
+$Engine='XMRig'; $Version='6.26.0'; $SecurityPolicy='rvn-governor-3'
+$SourceCommit='d052b8b9b5d83d6adadf5f6a127e76ac3faa53aa'
 $Utf8=New-Object Text.UTF8Encoding($false)
 $base=Join-Path ([IO.Path]::GetTempPath()) ('xmrig-pua-test-'+[guid]::NewGuid())
 $scenarios=@('success','missing-install','missing-install-directory','missing-source','wrong-hash','changed-source','changed-install','wrong-name','wrong-threat',

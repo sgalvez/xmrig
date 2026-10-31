@@ -16,7 +16,8 @@ class ProbeTests(unittest.TestCase):
         self.config = dict(address='R'+'A'*33, worker='test', pool='stratum.ravenminer.com:13838')
         self.build = dict(engine='XMRig', commit=COMMIT, security_policy=POLICY, sha256='a'*64)
         self.probe = dict(mining_profile=MINING_PROFILE, engine='XMRig', security_policy=POLICY, sha256='a'*64, gpu_id=2, **self.config,
-                          completed=True, started=1000, ended=1300, active_seconds=300, cooling_seconds=0, error=None,
+                          completed=True, started=1000, ended=1300, active_seconds=300, cooling_seconds=0, search_seconds=300, preparation_seconds=0,
+                          observed_seconds=300, search_started=1000, error=None,
                           probe_worker='probe-'+'b'*20)
         self.pool = {'workers': {'list': [{'name': self.probe['probe_worker'], 'lastShareTime':1250}]}}
 
@@ -49,7 +50,7 @@ class ProbeTests(unittest.TestCase):
                 with self.assertRaises(ValidationError): self.validate()
 
     def test_long_cooling_wait_does_not_consume_trial(self):
-        self.probe.update(ended=4900, active_seconds=300, cooling_seconds=3600)
+        self.probe.update(ended=4900, active_seconds=300, cooling_seconds=3600, observed_seconds=3900)
         result = validate_probe(self.config, self.probe, self.build, 2, self.pool, 4920)
         self.assertTrue(result['verified'])
 
@@ -62,6 +63,27 @@ class ProbeTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.probe = {**original, **changes}
                 with self.assertRaises(ValidationError): self.validate()
+
+    def test_dag_time_is_separate_from_search_and_validates_fractional_clock(self):
+        self.probe.update(ended=1419.4, active_seconds=419.4, preparation_seconds=119.1,
+                          search_seconds=300.3, search_started=1119, observed_seconds=419.4)
+        result=validate_probe(self.config,self.probe,self.build,2,self.pool,1430)
+        self.assertTrue(result['verified'])
+
+    def test_preparation_only_and_legacy_drifting_clock_never_validate(self):
+        for changes in ({'preparation_seconds':300,'search_seconds':0},
+                        {'ended':1319}, {'search_started':None}, {'observed_seconds':301}):
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                validate_probe(self.config,{**self.probe,**changes},self.build,2,self.pool,1330)
+
+    def test_invalid_clock_is_not_retried_as_pool_delay(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            write_json(root/'xmrig-probe.json',{**self.probe,'ended':1319})
+            write_json(root/'build.json',self.build)
+            fetch,sleep=Mock(),Mock()
+            with self.assertRaises(ValidationError): confirm(root,self.config,2,root/'build.json',fetch,sleep,lambda:1330)
+            fetch.assert_not_called();sleep.assert_not_called()
 
     def test_only_success_writes_validation_and_no_dashboard_cache_is_used(self):
         with tempfile.TemporaryDirectory() as d:

@@ -67,7 +67,7 @@ def view(data):
     elif cooling and address_matches:
         state, title, detail = "waiting", "Minería pausada · enfriando", "No se envía trabajo a la GPU. Reanuda automáticamente cuando GPU, hotspot y memoria disponible estén a 60 °C o menos. Ctrl+C en la sesión de minería detiene todo."
     elif miner.get("trial") is True and address_matches:
-        state, title, detail = "waiting", "Prueba de XMRig en curso", "Prueba de cinco minutos con un worker temporal. El arranque permanente espera confirmación del pool."
+        state, title, detail = "waiting", "Prueba de XMRig en curso", "Prueba de cinco minutos de búsqueda después de preparar el DAG, con un worker temporal. El arranque permanente espera confirmación del pool."
     elif not address_matches or miner.get("worker") != config.get("worker"):
         state, title, detail = "warning", "Revisa la dirección o el worker", "El proceso activo no coincide con la configuración del panel."
     elif recent_work:
@@ -125,6 +125,8 @@ def view(data):
                       "governor_phase": clean(miner.get("governor_phase")) if governor_fresh else None,
                       "duty_percent": str(miner["duty_percent"]) if governor_fresh and number(miner.get("duty_percent")) is not None else None,
                       "governor_time": float(number(miner.get("governor_updated")) or 0),
+                      "dag_done": str(miner["dag_done"]) if governor_fresh and number(miner.get("dag_done")) is not None else None,
+                      "dag_total": str(miner["dag_total"]) if governor_fresh and number(miner.get("dag_total")) is not None else None,
                       "sensor_source": clean(miner.get("sensor_source")) if sensor_fresh else None})
     telemetry.update({"sensor_fresh": sensor_fresh, "rate_fresh": rate_fresh,
                       "sensor_time": float(number(miner.get("temperature_updated")) or 0),
@@ -149,6 +151,8 @@ def view(data):
                   "pid": str(miner.get("miner_pid", "—")), "uptime": uptime,
                   "trial": miner.get("trial") is True, "worker": miner.get("worker"),
                   "active_seconds": str(miner['active_seconds']) if active and number(miner.get('active_seconds')) is not None else None,
+                  "search_seconds": str(miner["search_seconds"]) if active and number(miner.get("search_seconds")) is not None else None,
+                  "preparation_seconds": str(miner["preparation_seconds"]) if active and number(miner.get("preparation_seconds")) is not None else None,
                   "cooling_seconds": str(miner['cooling_seconds']) if active and number(miner.get('cooling_seconds')) is not None else None,
                   "age": max(0, int(miner_age)) if miner_age is not None else None},
         "telemetry": telemetry,

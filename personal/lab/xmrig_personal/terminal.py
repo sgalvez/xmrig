@@ -80,7 +80,7 @@ def current(snapshot, now):
         t = data.get('telemetry', {})
         for timestamp, limit, keys in (
                 ('sample_time', 35, ('hashrate_10s_hs','hashrate_60s_hs','hashrate_15m_hs')),
-                ('governor_time', 5, ('governor_state','governor_phase','duty_percent')),
+                ('governor_time', 5, ('governor_state','governor_phase','duty_percent','dag_done','dag_total')),
                 ('sensor_time', 30, ('temperature','edge_c','hotspot_c','memory_c','sensor_source','power_w','fan_rpm','core_mhz','memory_mhz'))):
             sample = decimal(t.get(timestamp))
             if sample is None or not 0 <= now - float(sample) <= limit:
@@ -298,7 +298,7 @@ def render(window, raw, history, now, page='overview', scroll=0, colors=True):
             session = [('Motor: '+str(miner.get('engine','--')),CYAN),
                        'Worker: '+str(miner.get('worker') or data.get('worker','--')),
                        'Cobro: '+str(data.get('address','--')),
-                       'Modo: '+('PRUEBA: 300 s sin pausa térmica' if miner.get('trial') else 'SESIÓN NORMAL'),
+                       'Modo: '+('PRUEBA: 300 s de búsqueda, sin DAG' if miner.get('trial') else 'SESIÓN NORMAL'),
                        'Proceso: '+str(miner.get('process','Sin verificar')),
                        ('Pausa >=80 C / reanuda todos <=60 C',DIM)]
             s.panel(top,left,8,w-left,'05 SESIÓN',session)

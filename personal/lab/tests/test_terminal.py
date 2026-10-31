@@ -62,7 +62,7 @@ class TerminalTests(unittest.TestCase):
     def test_explanations_are_visible_and_expire(self):
         data=fixture()
         data.update(state='waiting',title='Minería pausada')
-        data['miner'].update(trial=True,active_seconds=62,cooling_seconds=138)
+        data['miner'].update(trial=True,active_seconds=92,search_seconds=62,preparation_seconds=30,cooling_seconds=138)
         data['telemetry'].update(governor_state='cooling',governor_phase='dag',duty_percent='0',
                                  edge_c='57',hotspot_c='59',memory_c='78',fan_rpm='0')
         canvas=Canvas(40,140)

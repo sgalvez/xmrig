@@ -28,9 +28,9 @@ if ($Action -eq 'Probe') { $TrialSeconds = 300; $Action = 'Run' }
 $Engine = 'XMRig'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $ExeHash = ''
-$SourceCommit = 'e04811e6121020302ab58f71909137dced3ac33b'
-$SecurityPolicy = 'rvn-governor-2'
-$MiningProfile = 'rx9070xt-duty25-halt80-resume60-v2'
+$SourceCommit = 'd052b8b9b5d83d6adadf5f6a127e76ac3faa53aa'
+$SecurityPolicy = 'rvn-governor-3'
+$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-v3'
 $ProjectRoot = Split-Path -Parent $PSCommandPath
 $BuildRoot = Join-Path $ProjectRoot '.artifacts\windows'
 $TrustFile = Join-Path $ProjectRoot '.trust\windows-build.json'
@@ -551,12 +551,20 @@ function Assert-GpuTemperature($Health, $Governor, [double]$Now, $HotSince) {
     if (($Now - $HotSince) -ge 3) { throw 'El control GPU no confirma la pausa termica a 80 C. Minero detenido.' }
     return $HotSince
 }
-function Update-TrialClock($Clock, [double]$Now, [bool]$Cooling) {
-    $elapsed = [Math]::Max(0, $Now - $Clock.last)
+function Update-TrialClock($Clock, [double]$Now, [bool]$Cooling, [string]$Phase = '') {
+    # Do not use Math.Max(0, delta): Windows PowerShell selects its integer
+    # overload and rounds each interval, accumulating seconds of clock drift.
+    [double]$elapsed = $Now - [double]$Clock.last
+    if ($elapsed -lt 0) { throw 'El reloj monotono retrocedio.' }
     if ($Clock.cooling) { $Clock.cooling_seconds += $elapsed }
-    else { $Clock.active_seconds += $elapsed }
+    else {
+        $Clock.active_seconds += $elapsed
+        if ($Clock.phase -eq 'search') { $Clock.search_seconds += $elapsed }
+        else { $Clock.preparation_seconds += $elapsed }
+    }
     $Clock.last = $Now
     $Clock.cooling = $Cooling
+    $Clock.phase = $Phase
 }
 function Read-MinerStats([string]$Log) {
     $stats = @{}
@@ -710,7 +718,7 @@ try {
                     Remove-Item -LiteralPath (Join-Path $Runtime 'xmrig-probe.json') -ErrorAction SilentlyContinue
                     Remove-Item -LiteralPath (Join-Path $Runtime 'xmrig-validation.json') -ErrorAction SilentlyContinue
                     $worker = 'probe-' + [guid]::NewGuid().ToString('N').Substring(0,20)
-                    Write-Host "Prueba KAWPOW de 5 minutos en RavenMiner, GPU $GpuId, worker temporal $worker."
+                    Write-Host "Prueba KAWPOW de 5 minutos de busqueda, despues de preparar el DAG, en RavenMiner, GPU $GpuId, worker temporal $worker."
                 }
                 $log = Join-Path $Runtime 'miner.log'
                 if (Test-Path -LiteralPath $log) { Move-Item -LiteralPath $log -Destination "$log.previous" -Force }
@@ -726,7 +734,8 @@ try {
                 $lastProgress = $started - 5
                 $trialCompleted = $false
                 $watch = [Diagnostics.Stopwatch]::StartNew()
-                $trialClock = @{last=0.0; active_seconds=0.0; cooling_seconds=0.0; cooling=$false}
+                $trialClock = @{last=0.0; active_seconds=0.0; cooling_seconds=0.0; search_seconds=0.0; preparation_seconds=0.0; cooling=$false; phase='starting'}
+                $searchStarted = $null
                 $hotSince = $null
                 Write-Host 'Pausa automatica a 80 C; reanuda cuando GPU, hotspot y memoria disponible bajen a 60 C. Ctrl+C detiene la sesion.'
                 # No API listener. Telemetry is read from the local log and public pool API.
@@ -753,11 +762,18 @@ try {
                         $state.governor_state = $governor.state
                         $state.duty_percent = $governor.duty_percent
                         $state.governor_phase = $governor.phase
+                        $state.dag_done = $governor.dag_done
+                        $state.dag_total = $governor.dag_total
                     }
                     $hotSince = Assert-GpuTemperature $health $governor $watch.Elapsed.TotalSeconds $hotSince
-                    Update-TrialClock $trialClock $watch.Elapsed.TotalSeconds ($state.governor_state -eq 'cooling')
+                    $phase = if ($state.governor_updated -and ($state.updated - $state.governor_updated) -le 5) { $state.governor_phase } else { '' }
+                    if ($phase -eq 'search' -and $null -eq $searchStarted) { $searchStarted = $state.updated }
+                    Update-TrialClock $trialClock $watch.Elapsed.TotalSeconds ($state.governor_state -eq 'cooling') $phase
                     $state.active_seconds = $trialClock.active_seconds
                     $state.cooling_seconds = $trialClock.cooling_seconds
+                    $state.search_seconds = $trialClock.search_seconds
+                    $state.preparation_seconds = $trialClock.preparation_seconds
+                    $state.observed_seconds = $trialClock.last
                     $stats = Read-MinerStats $log
                     if ($stats.rate_line -and $stats.rate_line -ne $rateLine) {
                         $rateLine = $stats.rate_line
@@ -773,15 +789,17 @@ try {
                     Write-State $state
                     if ($state.governor_updated -and ($state.updated - $state.governor_updated) -gt 10) { throw 'Control GPU sin latido reciente. Minero detenido.' }
                     if (($state.updated - $healthSeen) -gt 30) { throw 'Sin lectura reciente de temperatura ADL. Se detiene la prueba/mineria; revisa el controlador AMD.' }
-                    if ($TrialSeconds -gt 0 -and $trialClock.active_seconds -ge $TrialSeconds) {
+                    if ($TrialSeconds -gt 0 -and $trialClock.search_seconds -ge $TrialSeconds) {
                         $trialCompleted = $true
                         break
                     }
+                    if ($TrialSeconds -gt 0 -and $trialClock.preparation_seconds -ge 900) { throw 'La preparacion no termino en 15 minutos sin pausa termica. Revisa el progreso DAG; no se valida la prueba.' }
                     if (($state.updated - $lastProgress) -ge 5) {
                         $lastProgress = $state.updated
-                        $label = if ($state.governor_state -eq 'cooling') { 'ENFRIANDO: esperando <=60 C' } else { 'ACTIVO' }
+                        $label = if ($state.governor_state -eq 'cooling') { 'ENFRIANDO: esperando <=60 C' } elseif ($phase -eq 'dag') { 'PREPARANDO DAG' } elseif ($phase -eq 'search') { 'BUSCANDO SOLUCIONES' } else { 'ESPERANDO TELEMETRIA' }
                         Write-Host ("{0} | GPU {1} C | hotspot {2} C | memoria {3} C | activos {4:N0} s | enfriando {5:N0} s | Ctrl+C: detener" -f $label, $state.edge_c, $state.hotspot_c, $state.memory_c, $trialClock.active_seconds, $trialClock.cooling_seconds)
-                        if ($TrialSeconds -gt 0) { Write-Host ("Prueba: {0:N0}/{1} segundos sin pausa termica." -f $trialClock.active_seconds, $TrialSeconds) }
+                        if ($TrialSeconds -gt 0) { Write-Host ("Prueba: {0:N1}/{1} s de busqueda; preparacion {2:N1} s (no cuenta)." -f $trialClock.search_seconds, $TrialSeconds, $trialClock.preparation_seconds) }
+                        if ($phase -eq 'dag' -and $state.dag_total -gt 0) { Write-Host ("DAG: {0:N1}% de elementos preparados." -f (100.0 * $state.dag_done / $state.dag_total)) }
                         if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 2 | Write-Host }
                     }
                     Start-Sleep -Seconds 1
@@ -801,6 +819,8 @@ try {
                         $probe = @{engine=$Engine; sha256=$ExeHash; security_policy=$SecurityPolicy; mining_profile=$MiningProfile; gpu_id=$GpuId; address=$config.address;
                             worker=$config.worker; pool=$config.pool; probe_worker=$worker; started=$started;
                             active_seconds=$state.active_seconds; cooling_seconds=$state.cooling_seconds;
+                            search_seconds=$state.search_seconds; preparation_seconds=$state.preparation_seconds;
+                            observed_seconds=$state.observed_seconds; search_started=$searchStarted;
                             ended=$state.updated; completed=($trialCompleted -eq $true); error=$state.error}
                         [IO.File]::WriteAllText((Join-Path $Runtime 'xmrig-probe.json'), ($probe | ConvertTo-Json), $Utf8)
                     }

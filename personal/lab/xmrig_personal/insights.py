@@ -58,6 +58,9 @@ def explain(data):
     elif active and state is None:
         work = 'Proceso activo; falta un latido reciente del control GPU para conocer su fase.'
         next_step = 'Espera la siguiente lectura. Un proceso abierto no confirma minería.'
+    done, total = number(t.get('dag_done')), number(t.get('dag_total'))
+    if active and phase == 'dag' and done is not None and total is not None and total > 0 and 0 <= done <= total:
+        work = f'DAG preparado: {done*100/total:.1f}%. ' + work
     share = p.get('last_share_age')
     if active and share is not None:
         work += ' Última share del pool: hace ' + seconds(share) + '.'
@@ -74,12 +77,15 @@ def explain(data):
         fan_note = f'Ventiladores: {fan:g} RPM informados; comprueba que la temperatura vaya bajando.'
     trial = 'Sesión continua · Ctrl+C en la sesión de minería detiene la GPU.'
     if m.get('trial'):
-        elapsed = number(m.get('active_seconds'))
+        elapsed = number(m.get('search_seconds'))
         if elapsed is None:
-            trial = 'Prueba: esperando contador de tiempo activo.'
+            trial = 'Prueba: sin contador reciente de búsqueda; preparar el DAG no completa la prueba.'
         else:
             remaining = max(Decimal(0), 300-elapsed)
-            trial = f'Prueba: {min(elapsed,300):.0f}/300 s sin pausa · faltan {remaining:.0f} s activos · enfriando {seconds(m.get("cooling_seconds"))}.'
+            trial = f'Prueba: {min(elapsed,300):.0f}/300 s de búsqueda · faltan {remaining:.0f} s de búsqueda · enfriando {seconds(m.get("cooling_seconds"))}.'
+            preparation = number(m.get('preparation_seconds'))
+            if preparation is not None and preparation > 0:
+                trial += ' Preparación: ' + seconds(preparation) + ' (no cuenta).'
             if remaining == 0:
                 trial += ' Pendiente de validación del pool.'
     if not active:
