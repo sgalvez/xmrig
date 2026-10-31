@@ -5,8 +5,8 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$tokens, [ref]$errors)
 if (@($errors).Count) { throw ($errors | Out-String) }
-# Load only pure validation functions. Never execute the launcher's top-level code.
-foreach ($name in @('Assert-Isolated', 'Get-ManagedInfo')) {
+# Load selected functions only. Never execute the launcher's top-level code.
+foreach ($name in @('Assert-Isolated', 'Get-ManagedInfo', 'Set-PrivateDirectoryAcl')) {
     $node = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
     if (-not $node) { throw "Missing function: $name" }
     Invoke-Expression $node.Extent.Text
@@ -48,4 +48,28 @@ $script:FakeInfo=@('name="Another VM"','UUID="12345678-1234-1234-1234-123456789a
 Must-Throw { Get-ManagedInfo }
 $script:FakeInfo=@('name="Xmrig-Audit-Win11"','UUID="00000000-1234-1234-1234-123456789abc"')
 Must-Throw { Get-ManagedInfo }
-Write-Host 'PowerShell syntax, VM identity and isolation checks passed. No download, VM or miner executed.'
+# Exercise the real Windows ACL tool on a disposable directory, including a
+# repeated call as happens when prepare resumes an interrupted download.
+$aclTest = Join-Path ([IO.Path]::GetTempPath()) ('xmrig-acl-test-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $aclTest | Out-Null
+try {
+    foreach ($attempt in 1..2) {
+        Set-PrivateDirectoryAcl $aclTest
+        $acl = Get-Acl -LiteralPath $aclTest
+        if (-not $acl.AreAccessRulesProtected) { throw 'Directory still inherits permissions.' }
+        $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+        foreach ($requiredSid in @($currentSid, 'S-1-5-18', 'S-1-5-32-544')) {
+            $allowed = @($rules | Where-Object {
+                $_.IdentityReference.Value -eq $requiredSid -and
+                $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+                ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq [Security.AccessControl.FileSystemRights]::FullControl
+            })
+            if ($allowed.Count -eq 0) { throw "Missing full-control grant for $requiredSid" }
+        }
+        $probe = Join-Path $aclTest 'write-check.txt'
+        [IO.File]::WriteAllText($probe, 'accessible')
+        if ([IO.File]::ReadAllText($probe) -ne 'accessible') { throw 'Directory became inaccessible.' }
+    }
+} finally { Remove-Item -LiteralPath $aclTest -Recurse -Force }
+Write-Host 'PowerShell syntax, VM identity, isolation and real Windows ACL checks passed. No download, VM or miner executed.'

@@ -24,6 +24,15 @@ function Invoke-VBox([string[]]$Arguments) {
 function Save-State {
     $script:State | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:StatePath -Encoding UTF8
 }
+function Set-PrivateDirectoryAcl([string]$Directory) {
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    # icacls requires '*' before a numeric SID. Grant access before removing
+    # inherited entries so an error cannot leave the owner without an allow ACE.
+    & icacls.exe $Directory /grant:r "*${sid}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'No se pudieron asignar permisos al usuario de Windows.' }
+    & icacls.exe $Directory /inheritance:r | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'No se pudo restringir la herencia del directorio de la VM.' }
+}
 function Read-ManagedState {
     if (-not (Test-Path -LiteralPath $script:StatePath)) { throw 'Primero ejecuta -Action prepare.' }
     $s = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json
@@ -110,9 +119,7 @@ if (@(Invoke-VBox @('list', 'vms')) -match ('^"' + [regex]::Escape($VmName) + '"
 New-Item -ItemType Directory -Path $Root -Force | Out-Null
 if ((Get-Item -LiteralPath $Root).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'La carpeta de trabajo no puede ser un enlace.' }
 # Keep the disposable guest password and unattended answer files private to this host account.
-$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-& icacls.exe $Root /inheritance:r /grant:r "${sid}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'No se pudieron restringir los permisos del directorio de la VM.' }
+Set-PrivateDirectoryAcl $Root
 if (-not (Test-Path -LiteralPath $Iso)) {
     $partial = $Iso + '.part'
     Write-Host 'Descargando ISO de evaluacion desde Microsoft (varios GB). Puede reanudarse repitiendo prepare.'
