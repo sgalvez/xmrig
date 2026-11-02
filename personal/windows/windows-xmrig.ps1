@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet('Install','Scan','Devices','Probe','Start','Run','Stop','Status','Review','Diagnostics','AcceptPua')][string]$Action,
+    [ValidateSet('Install','Scan','Devices','Probe','Start','Run','Stop','Status','Review','Diagnostics','AcceptPua','AcceptRisk')][string]$Action,
     [ValidateRange(0,31)][int]$GpuId = 0,
     [string]$RuntimeRoot = '',
     [string]$ExpectedSha256 = '',
@@ -85,6 +85,24 @@ function Get-MinerDetections {
 function Assert-DefenderReady([switch]$AllowMissingInstalled, [switch]$PrepareUpgrade) {
     Assert-DefenderEnabled
     $detections = @(Get-MinerDetections)
+    $riskFile = Join-Path $Runtime 'xmrig-risk-consent.json'
+    if (Test-Path -LiteralPath $riskFile) {
+        $risk = Get-Content -LiteralPath $riskFile -Raw | ConvertFrom-Json
+        if ($risk.component -ne $Engine -or $risk.accepted -ne $true -or
+            $risk.kind -ne 'explicit-owner-risk-consent' -or -not $risk.keys) {
+            throw 'Aceptacion de riesgo local invalida.'
+        }
+        $riskThreats = @(Get-MpThreat -ErrorAction Stop)
+        $accepted = @($detections | Where-Object {
+            (Get-DetectionKey $_) -in $risk.keys -and (Test-OwnerRiskIncident $_ $riskThreats)
+        })
+        if ($accepted.Count) {
+            Assert-RiskBuild $risk.sha256 -Preparation:($PrepareUpgrade -or $AllowMissingInstalled)
+            $detections = @($detections | Where-Object {
+                -not ((Get-DetectionKey $_) -in $risk.keys -and (Test-OwnerRiskIncident $_ $riskThreats))
+            })
+        }
+    }
     $consentFile = Join-Path $Runtime 'xmrig-pua-consent.json'
     if (Test-Path -LiteralPath $consentFile) {
         $consent = Get-Content -LiteralPath $consentFile -Raw | ConvertFrom-Json
@@ -122,6 +140,79 @@ function Assert-DefenderReady([switch]$AllowMissingInstalled, [switch]$PrepareUp
         [IO.File]::WriteAllText((Join-Path $Runtime 'xmrig-security-block.json'), ($block | ConvertTo-Json -Depth 6), $Utf8)
         throw 'Defender registra una deteccion en XMRig. Se suspende su ejecucion; conserva la cuarentena.'
     }
+}
+function Test-OwnerRiskIncident($Detection, $Threats) {
+    # Owner-reviewed classifications only. New IDs, names, resources or incident
+    # identities are never inherited, even when the executable hash is unchanged.
+    $known = @{'274600'='PUA:Win32/Caypnamer.A!ml';
+        '2147735505'='Trojan:Win32/Wacatac.B!ml';'2147749372'='Trojan:Win32/Wacatac.C!ml';
+        '2147814523'='Trojan:Win32/Wacatac.H!ml'}
+    $expected = $known[[string]$Detection.ThreatID]
+    if (-not $expected -or [string]::IsNullOrWhiteSpace($Detection.DetectionID)) { return $false }
+    $matches = @($Threats | Where-Object { $_.ThreatID -eq $Detection.ThreatID })
+    if (-not $matches.Count -or @($matches | Where-Object { $_.ThreatName -cne $expected }).Count) { return $false }
+    if (-not @($Detection.Resources).Count) { return $false }
+    foreach ($resource in $Detection.Resources) {
+        $r = ([string]$resource).ToLowerInvariant().Replace('/', '\').Replace('\\wsl$\', '\\wsl.localhost\')
+        $allowed = @($Exe, (Join-Path $BuildRoot 'xmrig.exe')) | ForEach-Object { 'file:_' + $_.ToLowerInvariant().Replace('/', '\').Replace('\\wsl$\', '\\wsl.localhost\') }
+        if ($r -notin $allowed) { return $false }
+    }
+    return $true
+}
+function Assert-RiskBuild([string]$Expected, [switch]$Preparation) {
+    if ($Expected -cnotmatch '^[a-f0-9]{64}$') { throw 'Indica el SHA-256 completo que aceptas.' }
+    $directories = @($BuildRoot)
+    if (-not $Preparation) { Assert-InstallDirectory; $directories += $InstallRoot }
+    foreach ($directory in $directories) {
+        $build = Load-Build $directory
+        if ($build.sha256 -cne $Expected -or
+            (Get-FileHash -LiteralPath (Join-Path $directory 'xmrig.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Expected) {
+            throw 'La aceptacion de riesgo no corresponde a este archivo. Requiere un SHA y una decision nuevos.'
+        }
+    }
+}
+function Accept-OwnerRisk {
+    Assert-StandardUser
+    Assert-LegacyIncidents
+    Assert-DefenderEnabled
+    if (Owned-Process (Read-State)) { throw 'Deten el minero antes de registrar la decision.' }
+    Assert-RiskBuild $ExpectedSha256 -Preparation
+    $detections = @(Get-MinerDetections)
+    $threats = @(Get-MpThreat -ErrorAction Stop)
+    $selected = @($detections | Where-Object { Test-OwnerRiskIncident $_ $threats })
+    if (-not $selected.Count) { throw 'No hay incidentes Wacatac/Caypnamer conocidos para aceptar.' }
+    $blockFile = Join-Path $Runtime 'xmrig-security-block.json'
+    $previous = $null
+    if (Test-Path -LiteralPath $blockFile) {
+        $previous = Get-Content -LiteralPath $blockFile -Raw | ConvertFrom-Json
+        if ($previous.component -ne $Engine -or -not $previous.threat_ids -or
+            @($previous.threat_ids | Where-Object { $_ -notin @($detections | ForEach-Object { $_.ThreatID }) }).Count) {
+            throw 'El bloqueo local incluye incidentes que Defender no permite identificar.'
+        }
+    }
+    $record = @{component=$Engine;accepted=$true;kind='explicit-owner-risk-consent';sha256=$ExpectedSha256;
+        updated=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();keys=@($selected | ForEach-Object { Get-DetectionKey $_ });
+        previous=$previous;detections=@($selected | Select-Object DetectionID,ThreatID,Resources,ThreatStatusID);
+        threat_names=@($threats | Where-Object { $_.ThreatID -in @($selected | ForEach-Object { $_.ThreatID }) } | ForEach-Object { $_.ThreatName })}
+    $path = Join-Path $Runtime 'xmrig-risk-consent.json'
+    $old = if (Test-Path -LiteralPath $path) { Get-Content -LiteralPath $path -Raw } else { $null }
+    try {
+        [IO.File]::WriteAllText("$path.tmp", ($record | ConvertTo-Json -Depth 8), $Utf8)
+        Move-Item -LiteralPath "$path.tmp" -Destination $path -Force
+        Assert-DefenderReady -PrepareUpgrade
+    } catch {
+        if ($null -ne $old) { [IO.File]::WriteAllText($path, $old, $Utf8) }
+        else { Remove-Item -LiteralPath $path -ErrorAction SilentlyContinue }
+        throw
+    }
+    $archive = Join-Path $Runtime 'security-history'
+    [void][IO.Directory]::CreateDirectory($archive)
+    [IO.File]::WriteAllText((Join-Path $archive ('risk-consent-' + [guid]::NewGuid().ToString('N') + '.json')),
+        ($record | ConvertTo-Json -Depth 8), $Utf8)
+    Remove-Item -LiteralPath $ScanFile -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $blockFile) { Remove-Item -LiteralPath $blockFile }
+    Write-Host "Riesgo aceptado localmente para SHA-256 $ExpectedSha256 y los incidentes registrados."
+    Write-Host 'No es una confirmacion de falso positivo. Defender no cambia; instalacion y analisis siguen siendo obligatorios.'
 }
 function Test-KnownPua($Detection, $Threats) {
     # Explicit owner consent is limited to this reviewed classification and file.
@@ -438,7 +529,13 @@ function Scan-Executable {
     if (Test-Path -LiteralPath (Join-Path $Runtime 'xmrig-pua-consent.json')) {
         $currentConsent = Get-Content -LiteralPath (Join-Path $Runtime 'xmrig-pua-consent.json') -Raw | ConvertFrom-Json
     }
-    if ($currentConsent -and $currentConsent.sha256 -ceq $ExeHash) {
+    $riskConsent = $null
+    if (Test-Path -LiteralPath (Join-Path $Runtime 'xmrig-risk-consent.json')) {
+        $riskConsent = Get-Content -LiteralPath (Join-Path $Runtime 'xmrig-risk-consent.json') -Raw | ConvertFrom-Json
+    }
+    if ($riskConsent -and $riskConsent.sha256 -ceq $ExeHash) {
+        Write-Host 'Analisis completado. Los incidentes registrados siguen aceptados por tu decision para este SHA; no es un dictamen de falso positivo.'
+    } elseif ($currentConsent -and $currentConsent.sha256 -ceq $ExeHash) {
         Write-Host 'Analisis completado sin nuevas detecciones pendientes. La PUA Caypnamer sigue aceptada por tu decision; no es un dictamen de inocuidad.'
     } else {
         Write-Host 'Analisis completado sin detecciones registradas para esta carpeta. No constituye una garantia de inocuidad.'
@@ -638,6 +735,7 @@ try {
         'Diagnostics' { Write-SecurityDiagnostic }
         'Review' { Review-RemovedDetection }
         'AcceptPua' { Accept-Pua }
+        'AcceptRisk' { Accept-OwnerRisk }
         'Install' {
             Assert-StandardUser
             Assert-MinerAllowed

@@ -1,0 +1,19 @@
+Owner decision after reviewing a known local build
+
+The integration exposes miner-accept-risk --sha256 HASH through raven.py.
+The Windows supervisor exposes -Action AcceptRisk -ExpectedSha256 HASH.
+This records owner risk acceptance, not remediation or a false-positive verdict.
+It recognizes only the reviewed Wacatac B/C/H and Caypnamer classifications and
+exact xmrig.exe paths. The receipt binds the executable SHA and incident keys.
+New classifications, resources, incident identities/status or modified files
+remain blocked. Existing checks for unrelated incidents are retained.
+
+No Defender preferences, exclusions, quarantine state or processes are changed
+by acceptance. Preparation can replace an old installation, but execution still
+requires source/installed hash agreement and the ordinary scan, GPU library,
+pool validation and thermal gates. Rebuilding does not inherit the old consent.
+Run as a standard user. The installer scanner may request UAC; the miner does not.
+
+check-risk-consent.ps1 exercises 15 inert-fixture scenarios, including rollback,
+changed incidents, wrong names/resources, file modification, old installations
+and disabled Defender. It never changes Defender or starts a miner.
