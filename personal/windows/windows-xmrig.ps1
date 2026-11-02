@@ -165,9 +165,22 @@ function Assert-RiskBuild([string]$Expected, [switch]$Preparation) {
     if (-not $Preparation) { Assert-InstallDirectory; $directories += $InstallRoot }
     foreach ($directory in $directories) {
         $build = Load-Build $directory
-        if ($build.sha256 -cne $Expected -or
-            (Get-FileHash -LiteralPath (Join-Path $directory 'xmrig.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Expected) {
-            throw 'La aceptacion de riesgo no corresponde a este archivo. Requiere un SHA y una decision nuevos.'
+        if ($build.sha256 -cne $Expected) {
+            throw 'La aceptacion de riesgo no corresponde a esta compilacion. Requiere un SHA y una decision nuevos.'
+        }
+        $file = Join-Path $directory 'xmrig.exe'
+        try {
+            $item = Get-Item -LiteralPath $file -ErrorAction Stop
+            if ($item.PSIsContainer) { throw 'La ruta no es un archivo.' }
+            $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        } catch {
+            throw "No se puede leer el ejecutable: $file. Revisa su estado en Defender y recupera la copia verificada antes de continuar. No aceptes otro SHA para resolver este error. Detalle: $($_.Exception.Message)"
+        }
+        if ($item.Length -eq 0) {
+            throw "El ejecutable esta vacio (0 bytes): $file. El manifiesto corresponde al SHA aceptado, pero falta recuperar la copia verificada. Revisa Defender; no registres el SHA del archivo vacio."
+        }
+        if ($actual -cne $Expected) {
+            throw "El contenido del ejecutable no coincide con la compilacion aceptada: $file. Recupera la copia verificada; no aceptes este SHA como si fuera una nueva compilacion."
         }
     }
 }

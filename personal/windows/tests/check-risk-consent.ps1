@@ -6,6 +6,10 @@ if($errors.Count){throw ($errors|Out-String)}
 foreach($f in $ast.FindAll({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true)){. ([scriptblock]::Create($f.Extent.Text))}
 function Assert-True($Value){if(-not $Value){throw "Assertion failed: $scenario"}}
 function Assert-Fails([scriptblock]$Body){$failed=$false;try{& $Body}catch{$failed=$true};Assert-True $failed}
+function Assert-FailsWith([scriptblock]$Body,[string]$Message){
+    $failure=$null;try{& $Body}catch{$failure=$_.Exception.Message}
+    Assert-True ($null -ne $failure -and $failure -like $Message)
+}
 function Assert-StandardUser {}
 function Owned-Process($State){return $null}
 function Start-Process {throw 'Test forbids process execution.'}
@@ -23,7 +27,7 @@ function Get-MpThreatDetection {
 $Engine='XMRig';$Version='6.26.0';$SourceCommit='a5de7a74c726b583b6bbfc3ccb045b09abf68db2';$SecurityPolicy='rvn-governor-4'
 $Utf8=New-Object Text.UTF8Encoding($false)
 $base=Join-Path ([IO.Path]::GetTempPath()) ('xmrig-risk-test-'+[guid]::NewGuid())
-$scenarios=@('success','old-install','wrong-hash','changed-source','unknown-id','changed-name','extra-resource',
+$scenarios=@('success','old-install','wrong-hash','changed-source','empty-source','missing-source','unknown-id','changed-name','extra-resource',
     'wrong-file','missing-id','missing-threat','phantom-block','av-off','during-change','mixed-unknown','rollback')
 try {
  foreach($scenario in $scenarios){
@@ -51,6 +55,8 @@ try {
       'old-install' {[IO.File]::WriteAllText($Exe,'Old inert fixture.');Copy-Item $manifest (Join-Path $InstallRoot 'build.json')}
       'wrong-hash' {$ExpectedSha256='f'*64}
       'changed-source' {Add-Content $source 'changed'}
+      'empty-source' {[IO.File]::WriteAllBytes($source,[byte[]]@())}
+      'missing-source' {Remove-Item -LiteralPath $source}
       'unknown-id' {$script:detections[0].ThreatID=999}
       'changed-name' {$script:threats[0].ThreatName='Trojan:Win32/Different'}
       'extra-resource' {$script:detections[0].Resources+=@('file:_C:\unrelated.exe')}
@@ -83,7 +89,14 @@ try {
       Copy-Item $source $Exe -Force
       Add-Content $source 'new build';Assert-Fails {Assert-DefenderReady -PrepareUpgrade}
     } else {
-      Assert-Fails {Accept-OwnerRisk};Assert-True (Test-Path $block)
+      switch($scenario){
+        'wrong-hash' {Assert-FailsWith {Accept-OwnerRisk} '*no corresponde a esta compilacion*'}
+        'changed-source' {Assert-FailsWith {Accept-OwnerRisk} '*contenido del ejecutable no coincide*'}
+        'empty-source' {Assert-FailsWith {Accept-OwnerRisk} '*vacio (0 bytes)*'}
+        'missing-source' {Assert-FailsWith {Accept-OwnerRisk} '*No se puede leer el ejecutable*'}
+        default {Assert-Fails {Accept-OwnerRisk}}
+      }
+      Assert-True (Test-Path $block)
       if($scenario -eq 'rollback'){Assert-True ((Get-Content $consent -Raw) -ceq 'previous receipt')}
       else {Assert-True (-not(Test-Path $consent))}
     }
