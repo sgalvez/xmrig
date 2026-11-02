@@ -82,6 +82,19 @@ public:
         if (m_state != State::Running) { return 50; }
         return m_next > now ? std::min<uint64_t>(50, m_next - now) : 1;
     }
+    // Fine budget uses a separate monotonic microsecond clock. Keep the legacy
+    // millisecond path intact for controlled comparisons with the same binary.
+    void completedUs(uint64_t started, uint64_t ended)
+    {
+        const uint64_t busy = ended > started ? ended - started : 1;
+        m_nextUs = ended + (busy * (100 - m_duty) + m_duty - 1) / m_duty;
+    }
+    bool readyUs(uint64_t now) const { return m_state == State::Running && now >= m_nextUs; }
+    uint64_t waitUs(uint64_t now) const
+    {
+        if (m_state != State::Running) { return 50000; }
+        return m_nextUs > now ? std::min<uint64_t>(50000, m_nextUs - now) : 1;
+    }
     unsigned duty() const { return m_duty; }
     unsigned effectiveDuty() const { return m_state == State::Running ? m_duty : 0; }
     unsigned maximum() const { return m_maximum; }
@@ -97,6 +110,7 @@ private:
     unsigned m_maximum;
     unsigned m_duty;
     uint64_t m_next = 0;
+    uint64_t m_nextUs = 0;
     uint64_t m_adjusted = 0;
     bool m_hadMemory = false;
     State m_state = State::Running;

@@ -3,6 +3,7 @@
 #define XMRIG_PERSONAL_OCL_GOVERNOR_H
 
 #include "personal/GpuGovernor.h"
+#include "personal/GpuWait.h"
 #include "backend/opencl/OclLaunchData.h"
 #include "backend/opencl/wrappers/AdlHealth.h"
 #ifdef XMRIG_FEATURE_ADL
@@ -20,9 +21,13 @@ namespace xmrig {
 namespace personal {
 
 struct OclGovernor {
-    explicit OclGovernor(unsigned duty) : policy(duty) {}
+    explicit OclGovernor(unsigned duty, bool preciseWait) : policy(duty), precise(preciseWait), timer(preciseWait) {}
     std::mutex mutex;
     GpuGovernor policy;
+    const bool precise;
+    GpuWait timer;
+    GpuTiming timing;
+    std::string timingPhase;
     ThermalSample last;
     uint64_t logged = 0;
     uint32_t dagDone = 0, dagTotal = 0;
@@ -51,8 +56,8 @@ struct OclGovernor {
         profiles[pci] = duty;
         if (!duty) { return {}; }
         auto &entry = registry[pci];
-        if (!entry) { entry = std::make_shared<OclGovernor>(duty); }
-        if (entry->policy.maximum() != duty) {
+        if (!entry) { entry = std::make_shared<OclGovernor>(duty, data.thread.gpuPreciseWait()); }
+        if (entry->policy.maximum() != duty || entry->precise != data.thread.gpuPreciseWait()) {
             throw std::runtime_error("Conflicting GPU duty profiles: restart miner to change policy");
         }
         return entry;
@@ -63,6 +68,10 @@ struct OclGovernor {
         for (;;) {
             if (!Nonce::sequence(Nonce::OPENCL)) { throw std::runtime_error("GPU governor cancelled"); }
             uint64_t now = Chrono::steadyMSecs();
+            uint64_t nowUs = GpuWait::nowUs();
+            if (timingPhase != phase) {
+                timing = GpuTiming(); timing.started = nowUs; timingPhase = phase;
+            }
             if (!last.polled || now - last.polled >= 250) {
                 AdlHealth health;
 #               ifdef XMRIG_FEATURE_ADL
@@ -87,8 +96,24 @@ struct OclGovernor {
             }
             if (policy.state() == GpuGovernor::State::Fault) { throw std::runtime_error(policy.reason()); }
             const bool paused = Nonce::isPaused();
-            if (policy.ready(now) && !paused) { return; }
-            std::this_thread::sleep_for(std::chrono::milliseconds(paused ? 50 : policy.waitMs(now)));
+            nowUs = GpuWait::nowUs();
+            if (nowUs - timing.started >= 5000000) {
+                LOG_INFO("gpu-timing {\"v\":1,\"gpu\":%u,\"pci\":\"%s\",\"phase\":\"%s\",\"timer\":\"%s\",\"duty_percent\":%u,\"window_us\":%llu,\"batches\":%llu,\"batch_us\":%llu,\"max_batch_us\":%llu,\"sleep_calls\":%llu,\"sleep_requested_us\":%llu,\"sleep_actual_us\":%llu,\"max_sleep_us\":%llu}",
+                         data.device.index(), data.device.topology().toString().data(), phase, timer.source(), policy.effectiveDuty(),
+                         static_cast<unsigned long long>(nowUs - timing.started), static_cast<unsigned long long>(timing.batches),
+                         static_cast<unsigned long long>(timing.batchUs), static_cast<unsigned long long>(timing.maxBatchUs),
+                         static_cast<unsigned long long>(timing.sleepCalls), static_cast<unsigned long long>(timing.requestedUs),
+                         static_cast<unsigned long long>(timing.actualUs), static_cast<unsigned long long>(timing.maxSleepUs));
+                timing = GpuTiming(); timing.started = nowUs;
+            }
+            nowUs = GpuWait::nowUs();
+            now = Chrono::steadyMSecs();
+            if ((precise ? policy.readyUs(nowUs) : policy.ready(now)) && !paused) { return; }
+            const uint64_t requested = paused ? 50000 : precise ? policy.waitUs(nowUs) : policy.waitMs(now) * 1000;
+            const uint64_t sleepStarted = GpuWait::nowUs();
+            try { timer.sleep(requested); }
+            catch (...) { policy.fault("gpu-wait-timer-failed"); throw; }
+            timing.slept(requested, GpuWait::nowUs() - sleepStarted);
         }
     }
 };
@@ -107,6 +132,7 @@ public:
         }
         m_governor->before(data, phase);
         m_started = Chrono::steadyMSecs();
+        m_startedUs = GpuWait::nowUs();
     }
     ~GpuBatch()
     {
@@ -118,13 +144,19 @@ public:
     }
     void complete()
     {
-        if (m_governor) { m_governor->policy.completed(m_started, Chrono::steadyMSecs()); }
+        if (m_governor) {
+            const uint64_t endedUs = GpuWait::nowUs();
+            m_governor->timing.batch(endedUs - m_startedUs);
+            if (m_governor->precise) { m_governor->policy.completedUs(m_startedUs, endedUs); }
+            else { m_governor->policy.completed(m_started, Chrono::steadyMSecs()); }
+        }
         m_completed = true;
     }
 private:
     std::shared_ptr<OclGovernor> m_governor;
     std::unique_lock<std::mutex> m_lock;
     uint64_t m_started = 0;
+    uint64_t m_startedUs = 0;
     bool m_completed = false;
 };
 }

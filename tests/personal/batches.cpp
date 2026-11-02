@@ -43,9 +43,10 @@ int main()
     try { GpuBatch failed(shared,a,"dag"); throw std::runtime_error("fake queue failure"); }
     catch(const std::runtime_error &) {}
     assert(OclGovernor::acquire(a)->policy.state()==GpuGovernor::State::Fault);
-    for (const char *phase : {"dag", "search"}) {
+    for (bool precise : {false, true}) for (const char *phase : {"dag", "search"}) {
         OclLaunchData c;
-        c.device.pci.id=std::string("thermal-")+phase;
+        c.thread.precise=precise;
+        c.device.pci.id=std::string("thermal-")+phase+(precise ? "-precise" : "-legacy");
         auto thermal=OclGovernor::acquire(c);
         AdlLib::hotspot=55;
         { GpuBatch warm(thermal,c,phase); warm.complete(); }

@@ -31,7 +31,9 @@ struct Nonce {
 };
 struct TestThread {
     unsigned duty=25, batch=65536;
+    bool precise=false;
     unsigned gpuDuty() const { return duty; }
+    bool gpuPreciseWait() const { return precise; }
     unsigned intensity() const { return batch; }
 };
 struct TestTopology {

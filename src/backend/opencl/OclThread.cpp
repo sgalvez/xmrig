@@ -56,6 +56,11 @@ xmrig::OclThread::OclThread(const rapidjson::Value &value)
         }
         m_gpuDuty = duty.GetUint();
     }
+    if (value.HasMember("gpu-precise-wait")) {
+        const auto &precise = value["gpu-precise-wait"];
+        if (!precise.IsBool()) { throw std::invalid_argument("gpu-precise-wait must be boolean"); }
+        m_gpuPreciseWait = precise.GetBool();
+    }
     m_index         = Json::getUint(value, kIndex);
     m_worksize      = std::max(std::min(Json::getUint(value, kWorksize), 512U), 1U);
     m_unrollFactor  = std::max(std::min(Json::getUint(value, kUnroll, m_unrollFactor), 128U), 1U);
@@ -101,7 +106,7 @@ xmrig::OclThread::OclThread(const rapidjson::Value &value)
 
 bool xmrig::OclThread::isEqual(const OclThread &other) const
 {
-    return other.m_gpuDuty == m_gpuDuty && other.m_threads.size() == m_threads.size() &&
+    return other.m_gpuDuty == m_gpuDuty && other.m_gpuPreciseWait == m_gpuPreciseWait && other.m_threads.size() == m_threads.size() &&
            std::equal(m_threads.begin(), m_threads.end(), other.m_threads.begin()) &&
            other.m_bfactor      == m_bfactor &&
            other.m_datasetHost  == m_datasetHost &&
@@ -122,6 +127,7 @@ rapidjson::Value xmrig::OclThread::toJSON(rapidjson::Document &doc) const
 
     Value out(kObjectType);
     out.AddMember("gpu-duty-percent", m_gpuDuty, allocator);
+    out.AddMember("gpu-precise-wait", m_gpuPreciseWait, allocator);
 
     out.AddMember(StringRef(kIndex),        index(), allocator);
     out.AddMember(StringRef(kIntensity),    intensity(), allocator);

@@ -7,7 +7,7 @@ RECIPE_FILES = (
     '.dockerignore', 'Dockerfile', 'sources.json', 'fetch.py', 'build.sh',
     'mingw.cmake', 'windows-libs.cmake', 'provenance.py', 'recipe.py',
     'apply_hardening.py', 'hardening/changes.json', 'hardening/TlsPolicy.h',
-    'hardening/DonationPolicy.h', 'hardening/GpuGovernor.h', 'hardening/OclGovernor.h',
+    'hardening/GpuWait.h', 'hardening/DonationPolicy.h', 'hardening/GpuGovernor.h', 'hardening/OclGovernor.h',
     'verify_privacy.py',
 )
 

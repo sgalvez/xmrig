@@ -8,6 +8,26 @@ on:
 permissions:
   contents: read
 jobs:
+  windows-timer:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Test actual Windows timer without miner or GPU
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'MSVC not found' }
+          @"
+          @echo off
+          call "$vs\VC\Auxiliary\Build\vcvars64.bat" > nul
+          if errorlevel 1 exit /b 1
+          cl /nologo /EHsc /std:c++14 /W4 /I src tests\personal\wait.cpp /Fe:"%TEMP%\wait-test.exe"
+          if errorlevel 1 exit /b 1
+          "%TEMP%\wait-test.exe"
+          "@ | Set-Content "$env:TEMP\test-wait.cmd"
+          & $env:ComSpec /d /c "$env:TEMP\test-wait.cmd"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows timer test failed' }
   windows-cross-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -21,6 +41,8 @@ jobs:
           /tmp/batches-test
           g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/personal/governor_stress.cpp -o /tmp/governor-stress
           /tmp/governor-stress
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread -Isrc tests/personal/wait.cpp -o /tmp/wait-test
+          /tmp/wait-test
           python3 tests/personal/privacy.py
       - name: Verify recipe reproduces fork sources
         run: |

@@ -124,6 +124,27 @@ int main()
         try { GpuGovernor invalid(duty); } catch(const std::invalid_argument &) { threw=true; }
         assert(threw);
     }
+    // Sub-ms work must distinguish 60% from 75%, including tiny DAG batches.
+    for (uint64_t work : {30ULL, 100ULL, 800ULL, 1300ULL}) {
+        uint64_t totals[2] = {};
+        unsigned index = 0;
+        for (unsigned duty : {60U, 75U}) {
+            GpuGovernor precise(duty);
+            uint64_t now = 1000000;
+            for (unsigned batch=0; batch<1000; ++batch) {
+                precise.completedUs(now, now+work); now += work;
+                while (!precise.readyUs(now)) { now += precise.waitUs(now); }
+            }
+            totals[index++] = now-1000000;
+            assert(work*1000*100 <= (now-1000000)*duty);
+            assert((now-1000000) <= (work*1000*100+duty-1)/duty + 1000);
+            precise.sample(sample(50,80,60,1),1);
+            assert(!precise.readyUs(now) && precise.waitUs(now)==50000);
+            precise.sample(sample(50,60,60,2),2);
+            assert(precise.readyUs(now));
+        }
+        assert(totals[1] < totals[0]);
+    }
     AdlHealth health;
     const auto empty=health.json(1,"03:00.0");
     assert(empty.find("\"hotspot_c\":null")!=std::string::npos);
