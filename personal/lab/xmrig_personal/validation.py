@@ -3,15 +3,16 @@ import math
 import re
 import time
 from .storage import read_json, write_json
+from .mining_profile import mining_profile
 
 
 class ValidationError(ValueError):
     pass
 
 ENGINE = 'XMRig'
-COMMIT = 'a5de7a74c726b583b6bbfc3ccb045b09abf68db2'
+COMMIT = 'f4e34dcee487ddaa615cca3315dd961e3548efdb'
 POLICY = 'rvn-governor-4'
-MINING_PROFILE = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v4'
+MINING_PROFILE = mining_profile({})  # Compatibility for existing 25% trials.
 
 
 def validate_record(config, probe, build, gpu, now):
@@ -19,7 +20,7 @@ def validate_record(config, probe, build, gpu, now):
         raise ValidationError('La prueba no terminó correctamente. Revisa logs; no se habilita el arranque permanente.')
     if build.get('engine') != ENGINE or build.get('commit') != COMMIT or build.get('security_policy') != POLICY or not re.fullmatch(r'[a-f0-9]{64}', build.get('sha256', '')):
         raise ValidationError('Compilación no identificada.')
-    expected = {'engine': ENGINE, 'sha256': build['sha256'], 'security_policy': POLICY, 'mining_profile': MINING_PROFILE, 'gpu_id': gpu,
+    expected = {'engine': ENGINE, 'sha256': build['sha256'], 'security_policy': POLICY, 'mining_profile': mining_profile(config), 'gpu_id': gpu,
                 'address': config['address'], 'worker': config['worker'], 'pool': config['pool']}
     if any(probe.get(k) != v for k, v in expected.items()):
         raise ValidationError('La prueba corresponde a otra GPU, compilación o configuración.')

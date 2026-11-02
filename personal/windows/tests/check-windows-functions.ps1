@@ -52,7 +52,7 @@ function Get-GpuLibraryPath([string]$Name) { return Join-Path (Join-Path $temp '
 foreach ($name in @('OpenCL.dll','atiadlxx.dll')) { [IO.File]::WriteAllText((Join-Path (Join-Path $temp 'System32') $name), 'Fixture, never loaded.') }
 $Version = 'test'
 $SecurityPolicy = 'rvn-governor-4'
-$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v4'
+$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v5'
 $BuildRoot = Join-Path $temp 'artifacts'
 $TrustFile = Join-Path $temp 'trusted-build.json'
 function Assert-StandardUser { } # Identity APIs require actual Windows; no elevation in fixtures.
@@ -154,12 +154,22 @@ try {
     Assert-Throws { Update-TrialClock $clock 3929 $false 'search' }
     Assert-Equal $settings.opencl.kawpow[0].index 2
     Assert-Equal $settings.opencl.kawpow.Count 1
+    Assert-Equal $settings.opencl.kawpow[0].'gpu-duty-percent' 25
+    foreach ($value in @(0,4,101,$true,$null,60.0,'60')) {
+        Assert-Throws { Get-DutyPercent @{gpu_duty_percent=$value} }
+    }
+    Assert-Equal (Get-DutyPercent ([pscustomobject]@{gpu_duty_percent=60})) 60
+    Assert-Equal (Get-MiningProfile @{gpu_duty_percent=60}) 'rx9070xt-duty60-halt80-resume60-search300-nodonate-v5'
+    $higher = @{} + $config
+    $higher.gpu_duty_percent = 60
+    Assert-Equal (Miner-Config $higher 2 'test' 'fixture.log').opencl.kawpow[0].'gpu-duty-percent' 60
     Assert-Equal $settings.'donate-level' 0.0
     Assert-Equal $settings.'health-print-time' 2
     Assert-Throws { Assert-Validated $config }
     $validated = @{mining_profile=$MiningProfile;verified=$true;engine=$Engine;security_policy=$SecurityPolicy;sha256=$ExeHash;gpu_id=2;address=$config.address;worker=$config.worker;pool=$config.pool}
     $validated | ConvertTo-Json | Set-Content (Join-Path $Runtime 'xmrig-validation.json')
     Assert-Validated $config
+    Assert-Throws { Assert-Validated $higher }
     $GpuId = 1
     Assert-Throws { Assert-Validated $config }
     $log = Join-Path $Runtime 'temperature.log'

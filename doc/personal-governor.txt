@@ -2,7 +2,7 @@ Personal Ravencoin GPU governor (sgalvez fork)
 
 This is a GPL-3.0-or-later derivative of XMRig 6.26.0. The original
 license, copyrights and donation attribution are retained. Personal changes
-also preserve verified TLS, Windows system DLL loading and 0.5% donation.
+also preserve verified TLS and Windows system DLL loading. Donation is disabled in the personal build.
 
 Opt in on each OpenCL KAWPOW thread profile with "gpu-duty-percent": 25.
 0 or omission preserves upstream scheduling. Accepted values: integer 5..100.
@@ -59,3 +59,10 @@ Tests: g++ -std=c++11 -Wall -Wextra -Werror -Isrc
 Real-device acceptance still requires a bounded trial, comparison with AMD
 Adrenalin edge/hotspot readings, cooling/recovery observation and own pool
 shares. A new executable hash requires a new scan and mining validation.
+
+Load policy v5: the supervisor reads gpu_duty_percent from local mining.json
+(default 25, integer 5..100; zero is forbidden by the supervisor). A new load
+requires a new pool-validated trial. Active duty drops by five points per second
+when any available sensor reaches 75 C and recovers one point per five seconds
+at <=70 C. Emergency halt remains 80 C with resume only at <=60 C on all
+available sensors. These are local policy limits, not manufacturer guarantees.

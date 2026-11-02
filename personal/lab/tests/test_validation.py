@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from xmrig_personal.validation import COMMIT, POLICY, MINING_PROFILE, ValidationError, confirm, validate_probe
 from xmrig_personal.storage import read_json, write_json
+from xmrig_personal.mining_profile import duty_percent, mining_profile
 
 
 class ProbeTests(unittest.TestCase):
@@ -30,6 +31,20 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result['sha256'], self.build['sha256'])
         self.assertEqual(result['gpu_id'], 2)
         self.assertEqual(result['address'], self.config['address'])
+
+    def test_changed_load_requires_new_matching_trial(self):
+        self.config['gpu_duty_percent'] = 60
+        with self.assertRaises(ValidationError): self.validate()
+        self.probe['mining_profile'] = mining_profile(self.config)
+        self.assertTrue(self.validate()['verified'])
+        self.config['gpu_duty_percent'] = 50
+        with self.assertRaises(ValidationError): self.validate()
+
+    def test_load_cannot_disable_governor_or_coerce_invalid_values(self):
+        self.assertEqual(duty_percent({}), 25)
+        for value in (0, 4, 101, True, None, 60.0, '60'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                duty_percent({'gpu_duty_percent': value})
 
     def test_other_workers_donation_and_old_shares_cannot_validate(self):
         for entry in ({'name':'donate', 'lastShareTime':1250},

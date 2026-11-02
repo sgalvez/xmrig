@@ -28,9 +28,8 @@ if ($Action -eq 'Probe') { $TrialSeconds = 300; $Action = 'Run' }
 $Engine = 'XMRig'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $ExeHash = ''
-$SourceCommit = 'a5de7a74c726b583b6bbfc3ccb045b09abf68db2'
+$SourceCommit = 'f4e34dcee487ddaa615cca3315dd961e3548efdb'
 $SecurityPolicy = 'rvn-governor-4'
-$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v4'
 $ProjectRoot = Split-Path -Parent $PSCommandPath
 $BuildRoot = Join-Path $ProjectRoot '.artifacts\windows'
 $TrustFile = Join-Path $ProjectRoot '.trust\windows-build.json'
@@ -587,6 +586,18 @@ function Load-Build([string]$Directory) {
     $script:ExeHash = $build.sha256
     return $build
 }
+function Get-DutyPercent($Config) {
+    $present = if ($Config -is [System.Collections.IDictionary]) { $Config.Contains('gpu_duty_percent') } else { $null -ne $Config.PSObject.Properties['gpu_duty_percent'] }
+    if (-not $present) { return 25 }
+    $value = $Config.gpu_duty_percent
+    if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 5 -or $value -gt 100) {
+        throw 'gpu_duty_percent debe ser un entero entre 5 y 100; el control termico no puede desactivarse.'
+    }
+    return [int]$value
+}
+function Get-MiningProfile($Config) {
+    return ('rx9070xt-duty{0}-halt80-resume60-search300-nodonate-v5' -f (Get-DutyPercent $Config))
+}
 function Miner-Config($Config, [int]$Device, [string]$Worker, [string]$Log) {
     return @{
         autosave=$false; background=$false; colors=$false; title=$false; watch=$false;
@@ -595,7 +606,7 @@ function Miner-Config($Config, [int]$Device, [string]$Worker, [string]$Log) {
         cpu=@{enabled=$false; 'huge-pages'=$false}; cuda=@{enabled=$false};
         http=@{enabled=$false}; randomx=@{rdmsr=$false; wrmsr=$false};
         opencl=@{enabled=$true; platform='AMD'; loader=(Get-GpuLibraryPath 'OpenCL.dll'); cache=$true; adl=$true;
-            kawpow=@(@{index=$Device; intensity=65536; worksize=128; threads=@(-1); 'gpu-duty-percent'=25})};
+            kawpow=@(@{index=$Device; intensity=65536; worksize=128; threads=@(-1); 'gpu-duty-percent'=(Get-DutyPercent $Config)})};
         pools=@(@{algo='kawpow'; coin='ravencoin'; url=$Config.pool; user="$($Config.address).$Worker";
             pass='x'; tls=$true; sni=$true; enabled=$true; keepalive=$false; nicehash=$false});
         retries=5; 'retry-pause'=5; 'pause-on-battery'=$true
@@ -622,7 +633,7 @@ function Assert-Validated($Config) {
     if (-not (Test-Path -LiteralPath $path)) { throw 'Falta validar shares propias: python3 raven.py mine-test --gpu-id ID' }
     $v = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
     if ($v.verified -ne $true -or $v.engine -ne $Engine -or $v.sha256 -ne $ExeHash -or $v.security_policy -ne $SecurityPolicy -or
-        $v.mining_profile -ne $MiningProfile -or $v.gpu_id -ne $GpuId -or $v.address -ne $Config.address -or
+        $v.mining_profile -ne (Get-MiningProfile $Config) -or $v.gpu_id -ne $GpuId -or $v.address -ne $Config.address -or
         $v.worker -ne $Config.worker -or $v.pool -ne $Config.pool) {
         throw 'La validacion no corresponde a esta GPU, ejecutable o direccion. Repite mine-test.'
     }
@@ -736,6 +747,7 @@ function Read-Config {
         $c.pool -ne 'stratum.ravenminer.com:13838' -or $c.mode -ne 'PPLNS' -or
         $c.address -cnotmatch '^R[1-9A-HJ-NP-Za-km-z]{25,34}$' -or
         $c.worker -cnotmatch '^[A-Za-z0-9_-]{1,32}$') { throw 'Configuracion invalida: ejecuta configure desde WSL.' }
+    [void](Get-DutyPercent $c)
     return $c
 }
 function Quote-Arg([string]$Value) {
@@ -858,12 +870,14 @@ try {
                 $searchStarted = $null
                 $hotSince = $null
                 Write-Host 'Pausa automatica a 80 C; reanuda cuando GPU, hotspot y memoria disponible bajen a 60 C. Ctrl+C detiene la sesion.'
+                Write-Host ('Carga objetivo: {0}%. El control termico puede reducir la carga efectiva.' -f (Get-DutyPercent $config))
                 # No API listener. Telemetry is read from the local log and public pool API.
                 if ($CancelFile -and (Test-Path -LiteralPath $CancelFile)) { return }
                 $miner = Start-Process -FilePath $Exe -ArgumentList (($argv | ForEach-Object { Quote-Arg $_ }) -join ' ') -WorkingDirectory (Split-Path $Exe) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $Runtime 'stdout.log') -RedirectStandardError (Join-Path $Runtime 'stderr.log')
                 $state = @{ engine=$Engine; version=$Version; running=$true; miner_pid=$miner.Id; runner_pid=$PID; gpu_id=$GpuId;
                     start_ticks=$miner.StartTime.ToUniversalTime().Ticks.ToString();
-                    address=$config.address; worker=$worker; started=$started; trial=($TrialSeconds -gt 0); updated=0; error=$null }
+                    address=$config.address; worker=$worker; started=$started; trial=($TrialSeconds -gt 0); updated=0; error=$null;
+                    target_duty_percent=(Get-DutyPercent $config); mining_profile=(Get-MiningProfile $config) }
                 while (-not $miner.HasExited -and -not (Test-Path -LiteralPath $StopFile) -and -not ($CancelFile -and (Test-Path -LiteralPath $CancelFile))) {
                     $state.updated = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
                     $health = Read-Temperature $log $GpuId
@@ -880,6 +894,7 @@ try {
                         $governorLine = $governor.log_line
                         $state.governor_updated = $state.updated
                         $state.governor_state = $governor.state
+                        $state.governor_reason = $governor.reason
                         $state.duty_percent = $governor.duty_percent
                         $state.governor_phase = $governor.phase
                         $state.dag_done = $governor.dag_done
@@ -936,7 +951,7 @@ try {
                     $state.updated = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
                     Write-State $state
                     if ($TrialSeconds -gt 0 -and $config) {
-                        $probe = @{engine=$Engine; sha256=$ExeHash; security_policy=$SecurityPolicy; mining_profile=$MiningProfile; gpu_id=$GpuId; address=$config.address;
+                        $probe = @{engine=$Engine; sha256=$ExeHash; security_policy=$SecurityPolicy; mining_profile=(Get-MiningProfile $config); gpu_id=$GpuId; address=$config.address;
                             worker=$config.worker; pool=$config.pool; probe_worker=$worker; started=$started;
                             active_seconds=$state.active_seconds; cooling_seconds=$state.cooling_seconds;
                             search_seconds=$state.search_seconds; preparation_seconds=$state.preparation_seconds;
