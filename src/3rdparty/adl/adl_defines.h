@@ -1901,6 +1901,8 @@ typedef enum _ADLSensorType
         PMLOG_CLK_VCN1CLK2 = 37,
         PMLOG_SMART_POWERSHIFT_CPU = 38,
         PMLOG_SMART_POWERSHIFT_DGPU = 39,
+        // AMD display-library 84c881cb2136f04287eb3af12de00a9e2867aa9e: board power in watts.
+        PMLOG_BOARD_POWER = 73,
 	PMLOG_MAX_SENSORS_REAL
 } ADLSensorType;
 
@@ -1954,7 +1956,8 @@ typedef enum _ADL_PMLOG_SENSORS
     ADL_PMLOG_CLK_VCN1CLK1 = 36,
     ADL_PMLOG_CLK_VCN1CLK2 = 37,
     ADL_PMLOG_SMART_POWERSHIFT_CPU	= 38,
-    ADL_PMLOG_SMART_POWERSHIFT_DGPU = 39
+    ADL_PMLOG_SMART_POWERSHIFT_DGPU = 39,
+    ADL_PMLOG_BOARD_POWER = 73
 } ADL_PMLOG_SENSORS;
 
 /// \defgroup define_ecc_mode_states

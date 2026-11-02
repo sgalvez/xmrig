@@ -11,6 +11,20 @@ static ThermalSample sample(int edge, int hotspot, int memory, uint64_t time)
 }
 int main()
 {
+    AdlHealth power;
+    power.setPower(true, 217, true, 150);
+    assert(power.powerValid && power.power == 217 && std::string(power.powerScope) == "board");
+    assert(power.json(1, "03:00.0").find("\"power_source\":\"adl-pmlog-board\"") != std::string::npos);
+    power.setPower(false, 217, true, 42);
+    assert(power.power == 42 && std::string(power.powerScope) == "asic");
+    power.setPower(true, 0, false, 42);
+    assert(power.powerValid && power.power == 0); // Supported zero differs from missing.
+    power.setPower(true, -1, false, 42);
+    assert(!power.powerValid && power.json(1, "03:00.0").find("\"power_w\":null") != std::string::npos);
+    power.setPower(true, 99999, true, -1);
+    assert(!power.powerValid);
+    power.setPower(false, 217, false, 42);
+    assert(!power.powerValid && std::string(power.powerScope) == "unavailable");
     GpuGovernor g(25);
     g.sample(sample(50,55,-1,100),100);
     assert(g.ready(100));

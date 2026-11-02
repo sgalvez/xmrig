@@ -133,6 +133,8 @@ static void getPower_v7(const AdapterInfo &adapter, AdlHealth &health)
     if (ADL2_Overdrive6_CurrentPower_Get && ADL2_Overdrive6_CurrentPower_Get(nullptr, adapter.iAdapterIndex, 0, &power) == ADL_OK) {
         health.power = static_cast<uint32_t>(power / 256.0);
         health.powerValid = power >= 0;
+        health.powerScope = "asic";
+        health.powerSource = "adl-overdrive6-asic";
     }
 }
 
@@ -145,6 +147,7 @@ static void getSensorsData_v8(const AdapterInfo &adapter, AdlHealth &health)
 
     ADLPMLogDataOutput data;
     memset(&data, 0, sizeof(ADLPMLogDataOutput));
+    data.size = sizeof(data);
 
     if (ADL2_New_QueryPMLogData_Get(nullptr, adapter.iAdapterIndex, &data) != ADL_OK) {
         return;
@@ -154,7 +157,6 @@ static void getSensorsData_v8(const AdapterInfo &adapter, AdlHealth &health)
 
     health.clock        = sensorValue(PMLOG_CLK_GFXCLK);
     health.memClock     = sensorValue(PMLOG_CLK_MEMCLK);
-    health.power        = sensorValue(PMLOG_ASIC_POWER);
     health.rpm          = sensorValue(PMLOG_FAN_RPM);
     health.temperature  = sensorValue(PMLOG_TEMPERATURE_HOTSPOT);
     auto temperature = [&data](ADLSensorType type) {
@@ -165,7 +167,8 @@ static void getSensorsData_v8(const AdapterInfo &adapter, AdlHealth &health)
     health.hotspot = temperature(PMLOG_TEMPERATURE_HOTSPOT);
     health.memory = temperature(PMLOG_TEMPERATURE_MEM);
     health.source = "adl-pmlog";
-    health.powerValid = data.sensors[PMLOG_ASIC_POWER].supported && data.sensors[PMLOG_ASIC_POWER].value >= 0;
+    health.setPower(data.sensors[PMLOG_BOARD_POWER].supported, data.sensors[PMLOG_BOARD_POWER].value,
+                    data.sensors[PMLOG_ASIC_POWER].supported, data.sensors[PMLOG_ASIC_POWER].value);
     health.rpmValid = data.sensors[PMLOG_FAN_RPM].supported && data.sensors[PMLOG_FAN_RPM].value >= 0;
 }
 
