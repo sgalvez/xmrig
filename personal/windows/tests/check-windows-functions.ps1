@@ -82,7 +82,7 @@ function Get-GpuLibraryPath([string]$Name) { return Join-Path (Join-Path $temp '
 foreach ($name in @('OpenCL.dll','atiadlxx.dll')) { [IO.File]::WriteAllText((Join-Path (Join-Path $temp 'System32') $name), 'Fixture, never loaded.') }
 $Version = 'test'
 $SecurityPolicy = 'rvn-governor-4'
-$MiningProfile = 'rx9070xt-duty25-halt80-resume60-search300-nodonate-v5'
+$MiningProfile = 'rx9070xt-duty25-timerprecise-halt80-resume60-search300-nodonate-v6'
 $BuildRoot = Join-Path $temp 'artifacts'
 $TrustFile = Join-Path $temp 'trusted-build.json'
 function Assert-StandardUser { } # Identity APIs require actual Windows; no elevation in fixtures.
@@ -189,7 +189,14 @@ try {
         Assert-Throws { Get-DutyPercent @{gpu_duty_percent=$value} }
     }
     Assert-Equal (Get-DutyPercent ([pscustomobject]@{gpu_duty_percent=60})) 60
-    Assert-Equal (Get-MiningProfile @{gpu_duty_percent=60}) 'rx9070xt-duty60-halt80-resume60-search300-nodonate-v5'
+    Assert-Equal (Get-MiningProfile @{gpu_duty_percent=60}) 'rx9070xt-duty60-timerprecise-halt80-resume60-search300-nodonate-v6'
+    Assert-Equal (Get-WaitMode @{}) 'precise'
+    Assert-Equal (Get-WaitMode @{gpu_wait_mode='legacy'}) 'legacy'
+    Assert-Equal $settings.opencl.kawpow[0].'gpu-precise-wait' $true
+    $legacyConfig = @{} + $config
+    $legacyConfig.gpu_wait_mode = 'legacy'
+    Assert-Equal (Miner-Config $legacyConfig 2 'test' 'fixture.log').opencl.kawpow[0].'gpu-precise-wait' $false
+    Assert-Throws { Get-WaitMode @{gpu_wait_mode='invalid'} }
     $higher = @{} + $config
     $higher.gpu_duty_percent = 60
     Assert-Equal (Miner-Config $higher 2 'test' 'fixture.log').opencl.kawpow[0].'gpu-duty-percent' 60
@@ -210,6 +217,12 @@ try {
     Assert-Equal (Read-Temperature $log 2).power_w $null
     Assert-Equal (Read-Temperature $log 2).fan_rpm 1800
     Assert-Equal (Read-Temperature $log 0) $null
+    @('gpu-timing {"v":1,"gpu":2,"phase":"search","timer":"legacy-sleep","window_us":5000000,"batches":300,"batch_us":430000,"sleep_calls":300,"sleep_requested_us":400000,"sleep_actual_us":4500000}',
+      'gpu-timing {"v":1,"gpu":1,"phase":"dag","timer":"waitable-high-resolution"}',
+      'gpu-timing {invalid json}') | Set-Content $log
+    Assert-Equal (Read-Timing $log 2).timer 'legacy-sleep'
+    Assert-Equal (Read-Timing $log 2).batches 300
+    Assert-Equal (Read-Timing $log 0) $null
     $cooling = @{state='cooling'; duty_percent=0}
     $running = @{state='running'; duty_percent=5}
     Assert-Equal (Assert-GpuTemperature @{edge_c=79;hotspot_c=79;memory_c=79} $running 10 $null) $null

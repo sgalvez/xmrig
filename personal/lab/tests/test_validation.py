@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from xmrig_personal.validation import COMMIT, POLICY, MINING_PROFILE, ValidationError, confirm, validate_probe
 from xmrig_personal.storage import read_json, write_json
-from xmrig_personal.mining_profile import duty_percent, mining_profile
+from xmrig_personal.mining_profile import duty_percent, mining_profile, wait_mode
 
 
 class ProbeTests(unittest.TestCase):
@@ -45,6 +45,15 @@ class ProbeTests(unittest.TestCase):
         for value in (0, 4, 101, True, None, 60.0, '60'):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 duty_percent({'gpu_duty_percent': value})
+
+    def test_timer_mode_changes_invalidate_previous_probe(self):
+        self.assertEqual(wait_mode({}), 'precise')
+        self.config['gpu_wait_mode'] = 'legacy'
+        with self.assertRaises(ValidationError): self.validate()
+        self.probe['mining_profile'] = mining_profile(self.config)
+        self.assertTrue(self.validate()['verified'])
+        for value in (None, True, 0, 'invalid'):
+            with self.assertRaises(ValueError): wait_mode({'gpu_wait_mode': value})
 
     def test_other_workers_donation_and_old_shares_cannot_validate(self):
         for entry in ({'name':'donate', 'lastShareTime':1250},

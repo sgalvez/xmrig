@@ -28,7 +28,7 @@ if ($Action -eq 'Probe') { $TrialSeconds = 300; $Action = 'Run' }
 $Engine = 'XMRig'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $ExeHash = ''
-$SourceCommit = 'f0debcf98aea4195a62a9fa64b5066e9b26e3dca'
+$SourceCommit = 'cfc5f4f78f539ad55fe82fc20493ba2287e0083c'
 $SecurityPolicy = 'rvn-governor-4'
 $ProjectRoot = Split-Path -Parent $PSCommandPath
 $BuildRoot = Join-Path $ProjectRoot '.artifacts\windows'
@@ -596,7 +596,13 @@ function Get-DutyPercent($Config) {
     return [int]$value
 }
 function Get-MiningProfile($Config) {
-    return ('rx9070xt-duty{0}-halt80-resume60-search300-nodonate-v5' -f (Get-DutyPercent $Config))
+    return ('rx9070xt-duty{0}-timer{1}-halt80-resume60-search300-nodonate-v6' -f (Get-DutyPercent $Config), (Get-WaitMode $Config))
+}
+function Get-WaitMode($Config) {
+    $present = if ($Config -is [System.Collections.IDictionary]) { $Config.Contains('gpu_wait_mode') } else { $null -ne $Config.PSObject.Properties['gpu_wait_mode'] }
+    if (-not $present) { return 'precise' }
+    if ($Config.gpu_wait_mode -cnotin @('precise','legacy')) { throw 'gpu_wait_mode debe ser precise o legacy.' }
+    return $Config.gpu_wait_mode
 }
 function Miner-Config($Config, [int]$Device, [string]$Worker, [string]$Log) {
     return @{
@@ -606,7 +612,7 @@ function Miner-Config($Config, [int]$Device, [string]$Worker, [string]$Log) {
         cpu=@{enabled=$false; 'huge-pages'=$false}; cuda=@{enabled=$false};
         http=@{enabled=$false}; randomx=@{rdmsr=$false; wrmsr=$false};
         opencl=@{enabled=$true; platform='AMD'; loader=(Get-GpuLibraryPath 'OpenCL.dll'); cache=$true; adl=$true;
-            kawpow=@(@{index=$Device; intensity=65536; worksize=128; threads=@(-1); 'gpu-duty-percent'=(Get-DutyPercent $Config)})};
+            kawpow=@(@{index=$Device; intensity=65536; worksize=128; threads=@(-1); 'gpu-duty-percent'=(Get-DutyPercent $Config); 'gpu-precise-wait'=((Get-WaitMode $Config) -eq 'precise')})};
         pools=@(@{algo='kawpow'; coin='ravencoin'; url=$Config.pool; user="$($Config.address).$Worker";
             pass='x'; tls=$true; sni=$true; enabled=$true; keepalive=$false; nicehash=$false});
         retries=5; 'retry-pause'=5; 'pause-on-battery'=$true
@@ -679,6 +685,22 @@ function Update-BoardEnergy($Energy, $Health) {
     $Energy.watts = $watts
     $Energy.pci = $Health.pci
     $Energy.samples += 1
+}
+function Read-Timing([string]$Log, [int]$Device) {
+    $latest = $null
+    if (Test-Path -LiteralPath $Log) {
+        foreach ($line in (Get-Content -LiteralPath $Log -Tail 120)) {
+            $plain = [regex]::Replace($line, '\x1b\[[0-9;]*m', '')
+            if ($plain -match 'gpu-timing (\{.*\})$') {
+                try { $sample = $Matches[1] | ConvertFrom-Json } catch { continue }
+                if ($sample.v -eq 1 -and $sample.gpu -eq $Device) {
+                    $latest = $sample
+                    $latest | Add-Member -NotePropertyName log_line -NotePropertyValue $plain -Force
+                }
+            }
+        }
+    }
+    return $latest
 }
 function Read-Governor([string]$Log, [int]$Device) {
     $latest = $null
@@ -887,6 +909,7 @@ try {
                 $healthLine = ''
                 $rateLine = ''
                 $governorLine = ''
+                $timingLine = ''
                 $sharesLine = ''
                 $lastProgress = $started - 5
                 $trialCompleted = $false
@@ -931,6 +954,15 @@ try {
                         $state.governor_phase = $governor.phase
                         $state.dag_done = $governor.dag_done
                         $state.dag_total = $governor.dag_total
+                    }
+                    $timing = Read-Timing $log $GpuId
+                    if ($timing -and $timing.log_line -ne $timingLine) {
+                        $timingLine = $timing.log_line
+                        $state.timing_updated = $state.updated
+                        $state.timing = @{}
+                        foreach ($field in @('phase','timer','window_us','batches','batch_us','max_batch_us','sleep_calls','sleep_requested_us','sleep_actual_us','max_sleep_us')) {
+                            $state.timing[$field] = $timing.$field
+                        }
                     }
                     $hotSince = Assert-GpuTemperature $health $governor $watch.Elapsed.TotalSeconds $hotSince
                     $phase = if ($state.governor_updated -and ($state.updated - $state.governor_updated) -le 5) { $state.governor_phase } else { '' }

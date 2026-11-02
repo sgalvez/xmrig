@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "xmrig-personal-
 from xmrig_personal.insights import explain
 from earnings import presentation
 from energy import presentation as energy_presentation
+from timing import presentation as timing_presentation
 
 ASSETS = Path(__file__).resolve().parent / "web"
 
@@ -184,6 +185,7 @@ def view(data):
                   "age": max(0, int(miner_age)) if miner_age is not None else None},
         "telemetry": telemetry,
         "energy": energy_presentation(miner, obj(data.get('energy_tariff'))),
+        "timing": timing_presentation(miner, now, active),
         "pool": {"fresh": pool_fresh, "worker": observed_worker, "hashrate": rate(worker.get("hr5m") if pool_fresh else None),
                  "hashrate_hs": str(worker["hr5m"]) if pool_fresh and number(worker.get("hr5m")) is not None else None,
                  "sample_time": float(checked or 0),
