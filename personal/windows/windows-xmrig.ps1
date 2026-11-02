@@ -28,7 +28,7 @@ if ($Action -eq 'Probe') { $TrialSeconds = 300; $Action = 'Run' }
 $Engine = 'XMRig'
 $ScanFile = Join-Path $Runtime 'xmrig-scan.json'
 $ExeHash = ''
-$SourceCommit = 'f4e34dcee487ddaa615cca3315dd961e3548efdb'
+$SourceCommit = 'f0debcf98aea4195a62a9fa64b5066e9b26e3dca'
 $SecurityPolicy = 'rvn-governor-4'
 $ProjectRoot = Split-Path -Parent $PSCommandPath
 $BuildRoot = Join-Path $ProjectRoot '.artifacts\windows'
@@ -648,12 +648,37 @@ function Read-Temperature([string]$Log, [int]$Device) {
                 if ($sample.v -eq 1 -and $sample.gpu -eq $Device) {
                     $latest = @{line=$plain; temperature=$sample.hotspot_c; edge_c=$sample.edge_c;
                         hotspot_c=$sample.hotspot_c; memory_c=$sample.memory_c; sensor_source=$sample.source;
-                        power_w=$sample.power_w; fan_rpm=$sample.fan_rpm; pci=$sample.pci}
+                        power_w=$sample.power_w; fan_rpm=$sample.fan_rpm; pci=$sample.pci;
+                        power_scope=$(if ($sample.PSObject.Properties['power_scope']) { $sample.power_scope } else { 'unavailable' });
+                        power_source=$(if ($sample.PSObject.Properties['power_source']) { $sample.power_source } else { 'unavailable' });
+                        polled_ms=$sample.polled_ms}
                 }
             }
         }
     }
     return $latest
+}
+function Update-BoardEnergy($Energy, $Health) {
+    # Integrate distinct monotonic driver polls only. Never bridge missing data,
+    # long gaps, device changes, or ASIC-only readings as whole-card energy.
+    if (-not $Health -or $Health.power_scope -ne 'board' -or $Health.power_source -ne 'adl-pmlog-board' -or
+        $null -eq $Health.power_w -or $null -eq $Health.polled_ms) { $Energy.last = $null; return }
+    [double]$watts = $Health.power_w
+    [double]$stamp = $Health.polled_ms
+    if ([double]::IsNaN($watts) -or [double]::IsInfinity($watts) -or $watts -lt 0 -or $watts -gt 2000 -or
+        [double]::IsNaN($stamp) -or [double]::IsInfinity($stamp) -or $stamp -lt 0) { $Energy.last = $null; return }
+    if ($null -ne $Energy.last) {
+        [double]$seconds = ($stamp - $Energy.last) / 1000.0
+        if ($seconds -eq 0) { return }
+        if ($seconds -gt 0 -and $seconds -le 5 -and $Energy.pci -eq $Health.pci) {
+            $Energy.wh += (($Energy.watts + $watts) / 2.0) * $seconds / 3600.0
+            $Energy.seconds += $seconds
+        }
+    }
+    $Energy.last = $stamp
+    $Energy.watts = $watts
+    $Energy.pci = $Health.pci
+    $Energy.samples += 1
 }
 function Read-Governor([string]$Log, [int]$Device) {
     $latest = $null
@@ -869,6 +894,7 @@ try {
                 $trialClock = @{last=0.0; active_seconds=0.0; cooling_seconds=0.0; search_seconds=0.0; preparation_seconds=0.0; cooling=$false; phase='starting'}
                 $searchStarted = $null
                 $hotSince = $null
+                $energy = @{last=$null; watts=0.0; pci=''; wh=0.0; seconds=0.0; samples=0}
                 Write-Host 'Pausa automatica a 80 C; reanuda cuando GPU, hotspot y memoria disponible bajen a 60 C. Ctrl+C detiene la sesion.'
                 Write-Host ('Carga objetivo: {0}%. El control termico puede reducir la carga efectiva.' -f (Get-DutyPercent $config))
                 # No API listener. Telemetry is read from the local log and public pool API.
@@ -885,9 +911,15 @@ try {
                         $healthLine = $health.line
                         $healthSeen = $state.updated
                         $state.temperature_updated = $state.updated
-                        foreach ($field in @('temperature','edge_c','hotspot_c','memory_c','sensor_source','pci','power_w','fan_rpm')) {
+                        foreach ($field in @('temperature','edge_c','hotspot_c','memory_c','sensor_source','pci','power_w','power_scope','power_source','fan_rpm')) {
                             $state[$field] = $health[$field]
                         }
+                        Update-BoardEnergy $energy $health
+                        $state.energy_kwh = if ($energy.seconds -gt 0) { $energy.wh / 1000.0 } else { $null }
+                        $state.energy_measured_seconds = $energy.seconds
+                        $state.energy_samples = $energy.samples
+                        $state.energy_scope = 'board'
+                        $state.power_average_w = if ($energy.seconds -gt 0) { $energy.wh * 3600.0 / $energy.seconds } else { $null }
                     }
                     $governor = Read-Governor $log $GpuId
                     if ($governor -and $governor.log_line -ne $governorLine) {

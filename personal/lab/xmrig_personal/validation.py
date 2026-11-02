@@ -10,7 +10,7 @@ class ValidationError(ValueError):
     pass
 
 ENGINE = 'XMRig'
-COMMIT = 'f4e34dcee487ddaa615cca3315dd961e3548efdb'
+COMMIT = 'f0debcf98aea4195a62a9fa64b5066e9b26e3dca'
 POLICY = 'rvn-governor-4'
 MINING_PROFILE = mining_profile({})  # Compatibility for existing 25% trials.
 

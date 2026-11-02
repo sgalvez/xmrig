@@ -1,8 +1,10 @@
 """Panel HTTP local de solo lectura. No expone RPC, claves ni archivos privados."""
 import json
+import ipaddress
 import sys
 import threading
 import time
+from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -10,12 +12,32 @@ from urllib.parse import urlsplit
 from dashboard import clean, coins, collect, number, rate
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "xmrig-personal-lab"))
 from xmrig_personal.insights import explain
+from earnings import presentation
+from energy import presentation as energy_presentation
 
 ASSETS = Path(__file__).resolve().parent / "web"
 
 
 def obj(value):
     return value if isinstance(value, dict) else {}
+
+
+def chain_status(chain, now):
+    if not chain:
+        return False, 'No disponible'
+    ibd = chain.get('initialblockdownload')
+    if ibd is False:
+        return True, 'Sincronizado'
+    if ibd is True:
+        return False, 'Sincronizando'
+    # Ravencoin's RPC can omit initialblockdownload. Use a clearly labelled
+    # inference from matching headers AND recent chain time, not progress alone.
+    blocks, headers, progress, stamp = (number(chain.get(k)) for k in
+                                        ('blocks', 'headers', 'verificationprogress', 'mediantime'))
+    caught_up = (blocks is not None and blocks > 0 and blocks == headers
+                 and progress is not None and progress >= Decimal('0.999')
+                 and stamp is not None and 0 <= now-float(stamp) <= 7200)
+    return caught_up, 'Al día con sus cabeceras' if caught_up else 'Sincronización sin confirmar'
 
 
 def view(data):
@@ -81,7 +103,8 @@ def view(data):
     network = obj(node.get("network"))
     valid_wallet = chain.get("chain") == "main" and wallet.get("walletname") == "zerocool-rvn.dat"
     progress = number(chain.get("verificationprogress"))
-    syncing = chain.get("initialblockdownload") is not False
+    node_ready, node_status = chain_status(chain, now)
+    syncing = not node_ready
     balance = obj(p.get("balance")) if pool_fresh else {}
     amount = number(wallet.get("balance")) if valid_wallet else None
     alerts = []
@@ -122,8 +145,10 @@ def view(data):
         telemetry[key] = str(miner[key]) if rate_fresh and number(miner.get(key)) is not None else None
     governor_fresh = fresh_stamp("governor_updated", 5)
     telemetry.update({"governor_state": clean(miner.get("governor_state")) if governor_fresh else None,
+                      "governor_reason": clean(miner.get("governor_reason")) if governor_fresh else None,
                       "governor_phase": clean(miner.get("governor_phase")) if governor_fresh else None,
                       "duty_percent": str(miner["duty_percent"]) if governor_fresh and number(miner.get("duty_percent")) is not None else None,
+                      "target_duty_percent": str(miner["target_duty_percent"]) if heartbeat and number(miner.get("target_duty_percent")) is not None else None,
                       "governor_time": float(number(miner.get("governor_updated")) or 0),
                       "dag_done": str(miner["dag_done"]) if governor_fresh and number(miner.get("dag_done")) is not None else None,
                       "dag_total": str(miner["dag_total"]) if governor_fresh and number(miner.get("dag_total")) is not None else None,
@@ -134,6 +159,8 @@ def view(data):
                       "accepted": str(miner["accepted"]) if heartbeat and engine_matches and number(miner.get("accepted")) is not None else None,
                       "rejected": str(miner["rejected"]) if heartbeat and engine_matches and number(miner.get("rejected")) is not None else None,
                       "shares_note": "Contadores del log; pueden incluir donación. No equivalen a pagos."})
+    for key in ('power_scope', 'power_source'):
+        telemetry[key] = clean(miner.get(key, 'unavailable')) if sensor_fresh else None
     transactions = []
     if valid_wallet and isinstance(node.get("transactions"), list):
         for tx in node["transactions"][-5:]:
@@ -156,6 +183,7 @@ def view(data):
                   "cooling_seconds": str(miner['cooling_seconds']) if active and number(miner.get('cooling_seconds')) is not None else None,
                   "age": max(0, int(miner_age)) if miner_age is not None else None},
         "telemetry": telemetry,
+        "energy": energy_presentation(miner, obj(data.get('energy_tariff'))),
         "pool": {"fresh": pool_fresh, "worker": observed_worker, "hashrate": rate(worker.get("hr5m") if pool_fresh else None),
                  "hashrate_hs": str(worker["hr5m"]) if pool_fresh and number(worker.get("hr5m")) is not None else None,
                  "sample_time": float(checked or 0),
@@ -169,7 +197,7 @@ def view(data):
                    "pending": coins(wallet.get("unconfirmed_balance") if valid_wallet else None),
                    "immature": coins(wallet.get("immature_balance") if valid_wallet else None),
                    "provisional": syncing or not valid_wallet},
-        "node": {"status": "No disponible" if not chain else ("Sincronizando" if syncing else "Sincronizado"),
+        "node": {"status": node_status,
                  "percent": f"{progress * 100:.10f}%" if progress is not None else "—",
                  "blocks": str(chain.get("blocks", "—")), "headers": str(chain.get("headers", "—")),
                  "connections": str(network.get("connections", "—"))},
@@ -182,6 +210,12 @@ def view(data):
     }
 
     result["insight"] = explain(result)
+    result['earnings'] = presentation(obj(data.get('pool_details')), config.get('address'), now, p, pool_fresh)
+    minimum = number(result['earnings']['minimum'])
+    # The legacy wallet API uses zero for the default, not a zero payout threshold.
+    legacy_min = number(p.get('minPayout')) if pool_fresh else None
+    result['pool']['minimum'] = coins(minimum if minimum is not None else legacy_min if legacy_min and legacy_min > 0 else None)
+    result['wallet']['available_raw'] = format(amount, 'f') if amount is not None else None
     return result
 
 
@@ -194,6 +228,7 @@ class Snapshot:
     def refresh(self):
         try:
             value = view(self.reader())
+            json.dumps(value, allow_nan=False)
         except Exception:
             value = {"error": "No se pudo actualizar el estado. Reintentando…", "updated": time.time()}
         with self.lock:
@@ -209,7 +244,18 @@ class Snapshot:
             stop.wait(5)
 
 
-def handler(snapshot, port):
+def lan_ipv4(value):
+    address = ipaddress.IPv4Address(value)
+    if not any(address in ipaddress.IPv4Network(network) for network in
+               ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')):
+        raise ValueError('La dirección LAN debe ser una IPv4 privada de tu red doméstica.')
+    return str(address)
+
+
+def handler(snapshot, port, lan_address=None, market=None):
+    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+    if lan_address:
+        allowed_hosts.add(f'{lan_ipv4(lan_address)}:{port}')
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -226,12 +272,14 @@ def handler(snapshot, port):
             self.wfile.write(body)
 
         def do_GET(self):
-            allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
             if self.headers.get("Host", "").lower() not in allowed_hosts or self.headers.get("Sec-Fetch-Site") == "cross-site":
-                return self.respond(403, b"Acceso local requerido.")
+                return self.respond(403, b"Direccion del panel no autorizada.")
             path = urlsplit(self.path).path
             if path == "/api/status":
                 return self.respond(200, snapshot.read(), "application/json; charset=utf-8")
+            if path == '/api/market':
+                body = market.read() if market else b'{"available":false,"stale":true}'
+                return self.respond(200, body, 'application/json; charset=utf-8')
             routes = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                       "/styles.css": ("styles.css", "text/css; charset=utf-8")}
@@ -246,14 +294,21 @@ def handler(snapshot, port):
     return Handler
 
 
-def serve(wallet_snapshot, runtime, port=8787):
+def serve(wallet_snapshot, runtime, port=8787, lan_address=None):
+    from market import MarketSnapshot
+    if lan_address:
+        lan_address = lan_ipv4(lan_address)
     snapshot = Snapshot(lambda: collect(wallet_snapshot, runtime))
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler(snapshot, port))
+    market = MarketSnapshot()
+    server = ThreadingHTTPServer(("0.0.0.0" if lan_address else "127.0.0.1", port), handler(snapshot, port, lan_address, market))
     server.daemon_threads = True
     stop = threading.Event()
     thread = threading.Thread(target=snapshot.poll, args=(stop,), daemon=True)
     thread.start()
+    threading.Thread(target=market.poll, args=(stop,), daemon=True).start()
     print(f"Panel Ravencoin: http://localhost:{port}\nCtrl+C cierra el panel; el minero sigue en segundo plano.", flush=True)
+    if lan_address:
+        print(f'Acceso LAN: http://{lan_address}:{port} (requiere el reenvío y firewall de Windows configurados).', flush=True)
     try:
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:

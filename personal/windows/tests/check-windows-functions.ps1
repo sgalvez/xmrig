@@ -28,6 +28,36 @@ $script:fakeProcess.Path = $Exe
 $script:fakeProcess.StartTime = $time.AddSeconds(1)
 Assert-Equal (Owned-Process $state) $null
 Assert-Equal (Owned-Process $null) $null
+
+$energy = @{last=$null; watts=0.0; pci=''; wh=0.0; seconds=0.0; samples=0}
+$health = @{power_scope='board';power_source='adl-pmlog-board';power_w=100;polled_ms=1000;pci='03:00.0'}
+Update-BoardEnergy $energy $health
+$health.power_w=200; $health.polled_ms=3000
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.seconds 2.0
+if ([Math]::Abs($energy.wh - (150.0 * 2 / 3600)) -gt 0.00000001) { throw 'Incorrect energy integral' }
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.samples 2
+$health.polled_ms=20000
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.seconds 2.0 # Missing interval is not filled with assumed watts.
+$health.power_scope='asic'; $health.polled_ms=22000
+Update-BoardEnergy $energy $health
+$health.power_scope='board'; $health.polled_ms=24000
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.seconds 2.0
+$health.polled_ms=26000; $health.pci='73:00.0'
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.seconds 2.0
+$health.polled_ms=28000; $health.power_w=0
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.seconds 4.0
+$health.polled_ms=1000
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.seconds 4.0
+$health.polled_ms=2000; $health.power_w=[double]::NaN
+Update-BoardEnergy $energy $health
+Assert-Equal $energy.last $null
 Write-Output 'PowerShell: syntax, argument quoting and process identity checks passed.'
 
 function Assert-Throws([scriptblock]$Body) {
