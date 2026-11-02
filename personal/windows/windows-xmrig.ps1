@@ -771,6 +771,16 @@ function Read-MinerStats([string]$Log) {
     }
     return $stats
 }
+function Test-TrialComplete($Clock, $Accepted, [double]$MinimumSeconds) {
+    if ($Clock.search_seconds -lt $MinimumSeconds) { return $false }
+    # Keep the public verifier's 420 s upper bound, with scheduling margin.
+    # A finished clock without a local accepted share cannot be rescued by
+    # stopping the miner and repeatedly polling the pool.
+    if ($Clock.search_seconds -gt ($MinimumSeconds + 110)) {
+        throw 'La prueba agoto la espera adicional para obtener una share aceptada. No se habilita el arranque permanente.'
+    }
+    return (($Accepted -is [int] -or $Accepted -is [long]) -and $Accepted -gt 0)
+}
 function Owned-Process($State) {
     if (-not $State -or -not $State.miner_pid -or -not $State.start_ticks) { return $null }
     $p = Get-Process -Id $State.miner_pid -ErrorAction SilentlyContinue
@@ -988,7 +998,7 @@ try {
                     Write-State $state
                     if ($state.governor_updated -and ($state.updated - $state.governor_updated) -gt 10) { throw 'Control GPU sin latido reciente. Minero detenido.' }
                     if (($state.updated - $healthSeen) -gt 30) { throw 'Sin lectura reciente de temperatura ADL. Se detiene la prueba/mineria; revisa el controlador AMD.' }
-                    if ($TrialSeconds -gt 0 -and $trialClock.search_seconds -ge $TrialSeconds) {
+                    if ($TrialSeconds -gt 0 -and (Test-TrialComplete $trialClock $state.accepted $TrialSeconds)) {
                         $trialCompleted = $true
                         break
                     }
@@ -997,7 +1007,10 @@ try {
                         $lastProgress = $state.updated
                         $label = if ($state.governor_state -eq 'cooling') { 'ENFRIANDO: esperando <=60 C' } elseif ($phase -eq 'dag') { 'PREPARANDO DAG' } elseif ($phase -eq 'search') { 'BUSCANDO SOLUCIONES' } else { 'ESPERANDO TELEMETRIA' }
                         Write-Host ("{0} | GPU {1} C | hotspot {2} C | memoria {3} C | activos {4:N0} s | enfriando {5:N0} s | Ctrl+C: detener" -f $label, $state.edge_c, $state.hotspot_c, $state.memory_c, $trialClock.active_seconds, $trialClock.cooling_seconds)
-                        if ($TrialSeconds -gt 0) { Write-Host ("Prueba: {0:N1}/{1} s de busqueda; preparacion {2:N1} s (no cuenta)." -f $trialClock.search_seconds, $TrialSeconds, $trialClock.preparation_seconds) }
+                        if ($TrialSeconds -gt 0) {
+                            Write-Host ("Prueba: {0:N1}/{1} s de busqueda; preparacion {2:N1} s (no cuenta)." -f $trialClock.search_seconds, $TrialSeconds, $trialClock.preparation_seconds)
+                            if ($trialClock.search_seconds -ge $TrialSeconds) { Write-Host 'Tiempo minimo completado; esperando una share local aceptada antes de confirmar con el pool.' }
+                        }
                         if ($phase -eq 'dag' -and $state.dag_total -gt 0) { Write-Host ("DAG: {0:N1}% de elementos preparados." -f (100.0 * $state.dag_done / $state.dag_total)) }
                         if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 2 | Write-Host }
                     }

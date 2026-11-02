@@ -90,7 +90,7 @@ def view(data):
     elif cooling and address_matches:
         state, title, detail = "waiting", "Minería pausada · enfriando", "No se envía trabajo a la GPU. Reanuda automáticamente cuando GPU, hotspot y memoria disponible estén a 60 °C o menos. Ctrl+C en la sesión de minería detiene todo."
     elif miner.get("trial") is True and address_matches:
-        state, title, detail = "waiting", "Prueba de XMRig en curso", "Prueba de cinco minutos de búsqueda después de preparar el DAG, con un worker temporal. El arranque permanente espera confirmación del pool."
+        state, title, detail = "waiting", "Prueba de XMRig en curso", "Prueba de al menos cinco minutos de búsqueda después de preparar el DAG, con un worker temporal. El arranque permanente espera trabajo confirmado por el pool."
     elif not address_matches or miner.get("worker") != config.get("worker"):
         state, title, detail = "warning", "Revisa la dirección o el worker", "El proceso activo no coincide con la configuración del panel."
     elif recent_work:

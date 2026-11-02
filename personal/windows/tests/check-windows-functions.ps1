@@ -181,6 +181,13 @@ try {
     Assert-Equal $clock.search_seconds 300
     Assert-Equal $clock.cooling_seconds 3600
     Assert-Equal $clock.active_seconds 330
+    Assert-Equal (Test-TrialComplete @{search_seconds=299} 1 300) $false
+    Assert-Equal (Test-TrialComplete @{search_seconds=300} 0 300) $false
+    Assert-Equal (Test-TrialComplete @{search_seconds=300} $null 300) $false
+    Assert-Equal (Test-TrialComplete @{search_seconds=300} $true 300) $false
+    Assert-Equal (Test-TrialComplete @{search_seconds=300} 1 300) $true
+    Assert-Equal (Test-TrialComplete @{search_seconds=380} 1 300) $true
+    Assert-Throws { Test-TrialComplete @{search_seconds=411} 0 300 }
     Assert-Throws { Update-TrialClock $clock 3929 $false 'search' }
     Assert-Equal $settings.opencl.kawpow[0].index 2
     Assert-Equal $settings.opencl.kawpow.Count 1
