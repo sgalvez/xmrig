@@ -16,7 +16,7 @@ int main()
     assert(g.ready(100));
     g.completed(100,200);
     assert(!g.ready(499)); assert(g.ready(500)); // 100 ms work + 300 ms sleep = 25%.
-    g.sample(sample(61,66,-1,2000),2000);
+    g.sample(sample(61,75,-1,2000),2000);
     assert(g.duty()==20);
     g.sample(sample(65,80,-1,3000),3000);
     assert(g.state()==GpuGovernor::State::Cooling && !g.ready(3000));
@@ -63,6 +63,26 @@ int main()
     GpuGovernor warm(25);
     warm.sample(sample(79,79,79,1),1);
     assert(warm.ready(1)); // No earlier 70/75 C pause remains.
+    for (int channel=0; channel<3; ++channel) {
+        GpuGovernor load(60);
+        load.sample(sample(38,42,65,5000),5000);
+        assert(load.duty()==60); // Normal VRAM temperature does not throttle.
+        auto hot=sample(38,42,65,6000);
+        if(channel==0) hot.edge=75;
+        if(channel==1) hot.hotspot=75;
+        if(channel==2) hot.memory=75;
+        load.sample(hot,6000);
+        assert(load.duty()==55 && load.state()==GpuGovernor::State::Running);
+        load.sample(sample(38,42,71,11000),11000);
+        assert(load.duty()==55); // Hold the 70..75 C regulation band.
+        for(uint64_t t=16000;t<=36000;t+=5000) load.sample(sample(38,42,65,t),t);
+        assert(load.duty()==60); // Recover at 65 C without requiring <=60 C.
+        load.sample(sample(38,42,65,41000),41000);
+        assert(load.duty()==60); // Never exceed the configured ceiling.
+        load.sample(sample(38,42,80,42000),42000);
+        load.sample(sample(38,42,65,48000),48000);
+        assert(load.effectiveDuty()==0); // A real halt still requires <=60 C.
+    }
     GpuGovernor missing(25);
     missing.sample(sample(-1,55,-1,1),1);
     assert(missing.state()==GpuGovernor::State::Fault);

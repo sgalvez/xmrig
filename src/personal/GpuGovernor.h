@@ -53,12 +53,17 @@ public:
             m_reason = "none";
             m_adjusted = now;
         }
-        if ((s.edge >= 60 || s.hotspot >= 65 || s.memory >= 65) && now - m_adjusted >= 1000) {
+        // Regulation while running is separate from recovery after a thermal halt.
+        // Leave 5 C below the fixed 80 C cutoff; recover load at <=70 C so
+        // ordinary memory temperatures (61..65 C) cannot latch a low duty forever.
+        if ((s.edge >= 75 || s.hotspot >= 75 || s.memory >= 75) && now - m_adjusted >= 1000) {
             m_duty = std::max(5U, m_duty > 5 ? m_duty - 5 : 5U);
+            m_reason = s.edge >= 75 ? "edge-throttling" : s.hotspot >= 75 ? "hotspot-throttling" : "memory-throttling";
             m_adjusted = now;
         }
-        else if (cool && now - m_adjusted >= 5000 && m_duty < m_maximum) {
+        else if (s.edge <= 70 && s.hotspot <= 70 && s.memory <= 70 && now - m_adjusted >= 5000 && m_duty < m_maximum) {
             ++m_duty;
+            m_reason = m_duty < m_maximum ? "recovering-duty" : "none";
             m_adjusted = now;
         }
     }
