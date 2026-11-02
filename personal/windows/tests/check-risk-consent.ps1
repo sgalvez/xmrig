@@ -28,7 +28,8 @@ $Engine='XMRig';$Version='6.26.0';$SourceCommit='a5de7a74c726b583b6bbfc3ccb045b0
 $Utf8=New-Object Text.UTF8Encoding($false)
 $base=Join-Path ([IO.Path]::GetTempPath()) ('xmrig-risk-test-'+[guid]::NewGuid())
 $scenarios=@('success','old-install','wrong-hash','changed-source','empty-source','missing-source','unknown-id','changed-name','extra-resource',
-    'wrong-file','missing-id','missing-threat','phantom-block','av-off','during-change','mixed-unknown','rollback')
+    'wrong-file','missing-id','missing-threat','phantom-block','av-off','during-change','mixed-unknown','rollback',
+    'wacapew-remediated','wacapew-active','wacapew-executed','wacapew-unresolved','wacapew-source','wacapew-name','wacapew-pending')
 try {
  foreach($scenario in $scenarios){
     $case=Join-Path $base $scenario;$Runtime=Join-Path $case 'runtime';$BuildRoot=Join-Path $case 'build';$InstallRoot=Join-Path $case 'install'
@@ -50,6 +51,11 @@ try {
       @{ThreatID=2147735505;ThreatName='Trojan:Win32/Wacatac.B!ml';IsActive=$false},
       @{ThreatID=274600;ThreatName='PUA:Win32/Caypnamer.A!ml';IsActive=$false},
       @{ThreatID=2147749372;ThreatName='Trojan:Win32/Wacatac.C!ml';IsActive=$false})
+    if($scenario -like 'wacapew-*'){
+      $script:detections+=@{DetectionID='old-wacapew';ThreatID=265744;Resources=@("file:_$Exe");
+        ThreatStatusID=3;ActionSuccess=$true;AdditionalActionsBitMask=0}
+      $script:threats+=@{ThreatID=265744;ThreatName='Program:Win32/Wacapew.C!ml';IsActive=$false;DidThreatExecute=$false}
+    }
     '{"component":"XMRig","threat_ids":[2147814523,2147735505,274600]}'|Set-Content $block
     switch($scenario){
       'old-install' {[IO.File]::WriteAllText($Exe,'Old inert fixture.');Copy-Item $manifest (Join-Path $InstallRoot 'build.json')}
@@ -68,17 +74,31 @@ try {
       'during-change' {$script:during=$true}
       'mixed-unknown' {$script:detections+=@{DetectionID='new';ThreatID=999;Resources=@("file:_$Exe")}}
       'rollback' {$script:during=$true;[IO.File]::WriteAllText($consent,'previous receipt')}
+      'wacapew-active' {$script:threats[-1].IsActive=$true}
+      'wacapew-executed' {$script:threats[-1].DidThreatExecute=$true}
+      'wacapew-unresolved' {$script:detections[-1].ActionSuccess=$false}
+      'wacapew-source' {$script:detections[-1].Resources=@("file:_$source")}
+      'wacapew-name' {$script:threats[-1].ThreatName='Program:Win32/Wacapew.Other'}
+      'wacapew-pending' {$script:detections[-1].AdditionalActionsBitMask=4}
     }
-    if($scenario -in @('success','old-install')){
+    if($scenario -in @('success','old-install','wacapew-remediated')){
       Accept-OwnerRisk
       Assert-True (-not(Test-Path $block));Assert-True (Test-Path $consent)
       $record=Get-Content $consent -Raw|ConvertFrom-Json
-      Assert-True ($record.sha256 -ceq $ExpectedSha256 -and $record.keys.Count -eq 4)
+      Assert-True ($record.sha256 -ceq $ExpectedSha256 -and $record.keys.Count -eq $script:detections.Count)
       Assert-Fails {Check-Scan}
       Assert-DefenderReady -PrepareUpgrade
       Assert-Fails {Assert-DefenderReady} # Missing/old installation cannot run.
       Copy-Item $source $Exe -Force;Copy-Item $manifest (Join-Path $InstallRoot 'build.json') -Force
       Assert-DefenderReady
+      if($scenario -eq 'wacapew-remediated'){
+        $script:detections[-1].DetectionID='new-wacapew'
+        Assert-Fails {Assert-DefenderReady}
+        $script:detections[-1].DetectionID='old-wacapew'
+        $script:threats[-1].IsActive=$true
+        Assert-Fails {Assert-DefenderReady}
+        $script:threats[-1].IsActive=$false
+      }
       $script:detections[0].DetectionID='new-same-classification'
       Assert-Fails {Assert-DefenderReady};Assert-True (Test-Path $block)
       $script:detections[0].DetectionID='original-h'

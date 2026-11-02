@@ -146,15 +146,24 @@ function Test-OwnerRiskIncident($Detection, $Threats) {
     # identities are never inherited, even when the executable hash is unchanged.
     $known = @{'274600'='PUA:Win32/Caypnamer.A!ml';
         '2147735505'='Trojan:Win32/Wacatac.B!ml';'2147749372'='Trojan:Win32/Wacatac.C!ml';
-        '2147814523'='Trojan:Win32/Wacatac.H!ml'}
+        '2147814523'='Trojan:Win32/Wacatac.H!ml';'265744'='Program:Win32/Wacapew.C!ml'}
     $expected = $known[[string]$Detection.ThreatID]
     if (-not $expected -or [string]::IsNullOrWhiteSpace($Detection.DetectionID)) { return $false }
     $matches = @($Threats | Where-Object { $_.ThreatID -eq $Detection.ThreatID })
     if (-not $matches.Count -or @($matches | Where-Object { $_.ThreatName -cne $expected }).Count) { return $false }
+    # This classification was observed on the previous installation. It may
+    # accompany a new pinned owner decision only while remediated and never
+    # executed; it does not grant permission for active Wacapew detections.
+    if ($Detection.ThreatID -eq 265744) {
+        if ($Detection.ThreatStatusID -notin @(3,4) -or
+            -not (Test-ReviewableDetection $Detection $Threats) -or
+            @($matches | Where-Object { $_.DidThreatExecute -isnot [bool] -or $_.DidThreatExecute }).Count) { return $false }
+    }
     if (-not @($Detection.Resources).Count) { return $false }
     foreach ($resource in $Detection.Resources) {
         $r = ([string]$resource).ToLowerInvariant().Replace('/', '\').Replace('\\wsl$\', '\\wsl.localhost\')
         $allowed = @($Exe, (Join-Path $BuildRoot 'xmrig.exe')) | ForEach-Object { 'file:_' + $_.ToLowerInvariant().Replace('/', '\').Replace('\\wsl$\', '\\wsl.localhost\') }
+        if ($Detection.ThreatID -eq 265744) { $allowed = @($allowed[0]) }
         if ($r -notin $allowed) { return $false }
     }
     return $true
@@ -193,7 +202,7 @@ function Accept-OwnerRisk {
     $detections = @(Get-MinerDetections)
     $threats = @(Get-MpThreat -ErrorAction Stop)
     $selected = @($detections | Where-Object { Test-OwnerRiskIncident $_ $threats })
-    if (-not $selected.Count) { throw 'No hay incidentes Wacatac/Caypnamer conocidos para aceptar.' }
+    if (-not $selected.Count) { throw 'No hay incidentes revisados elegibles para registrar esta decision.' }
     $blockFile = Join-Path $Runtime 'xmrig-security-block.json'
     $previous = $null
     if (Test-Path -LiteralPath $blockFile) {
